@@ -3,7 +3,7 @@
  * Plugin Name: CFP Ethics Workshops Manager
  * Plugin URI: https://bhfe.com
  * Description: Manages CFP Ethics Workshops with historical data, upcoming workshops, and attendance sign-in
- * Version: 1.0.7
+ * Version: 1.0.8
  * Author: Skynet
  * License: GPL v2 or later
  */
@@ -1042,9 +1042,25 @@ function cfpew_templates_page() {
     global $wpdb;
     $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
     
+    // Debug information
+    $debug_info = array();
+    if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+        $debug_info[] = 'POST request detected';
+        $debug_info[] = 'Upload template button: ' . (isset($_POST['cfpew_upload_template']) ? 'YES' : 'NO');
+        $debug_info[] = 'Nonce present: ' . (isset($_POST['cfpew_template_nonce']) ? 'YES' : 'NO');
+        $debug_info[] = 'File present: ' . (isset($_FILES['template_file']) ? 'YES' : 'NO');
+        if (isset($_FILES['template_file'])) {
+            $debug_info[] = 'File error code: ' . $_FILES['template_file']['error'];
+            $debug_info[] = 'File size: ' . $_FILES['template_file']['size'] . ' bytes';
+            $debug_info[] = 'File name: ' . $_FILES['template_file']['name'];
+        }
+    }
+    
     // Handle template upload
     if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['cfpew_upload_template'])) {
         cfpew_handle_template_upload();
+    } elseif ($_SERVER['REQUEST_METHOD'] == 'POST') {
+        echo '<div class="notice notice-warning"><p>POST request received but upload button not detected. Debug info: ' . implode(', ', $debug_info) . '</p></div>';
     }
     
     // Handle template deletion
@@ -1060,12 +1076,23 @@ function cfpew_templates_page() {
         <h1>Workshop Materials Templates</h1>
         <p class="description">Upload and manage PDF and PowerPoint templates for workshop materials generation.</p>
         
+        <!-- Server Information -->
+        <div class="notice notice-info">
+            <p><strong>Server Upload Limits:</strong><br>
+            Max Upload Size: <?php echo round(cfpew_get_max_upload_size() / 1024 / 1024, 1); ?>MB 
+            (upload_max_filesize: <?php echo ini_get('upload_max_filesize'); ?>, 
+            post_max_size: <?php echo ini_get('post_max_size'); ?>, 
+            memory_limit: <?php echo ini_get('memory_limit'); ?>)
+            </p>
+        </div>
+        
         <div class="cfp-templates-container">
             <!-- Upload Section -->
             <div class="cfp-upload-section">
                 <h2>Upload New Template</h2>
                 <form method="post" enctype="multipart/form-data" class="cfp-upload-form">
                     <?php wp_nonce_field('cfpew_upload_template', 'cfpew_template_nonce'); ?>
+                    <input type="hidden" name="MAX_FILE_SIZE" value="<?php echo cfpew_get_max_upload_size(); ?>">
                     
                     <table class="form-table">
                         <tr>
@@ -1245,21 +1272,31 @@ function cfpew_templates_page() {
 
 // Handle template upload
 function cfpew_handle_template_upload() {
+    // Log upload attempt
+    error_log('CFP Workshop: Template upload attempt started');
+    
     if (!isset($_POST['cfpew_template_nonce']) || !wp_verify_nonce($_POST['cfpew_template_nonce'], 'cfpew_upload_template')) {
-        wp_die('Security check failed');
+        error_log('CFP Workshop: Nonce verification failed');
+        echo '<div class="notice notice-error"><p>Security check failed. Please try again.</p></div>';
+        return;
     }
+    
+    error_log('CFP Workshop: Nonce verification passed');
     
     // Check if file was uploaded
     if (!isset($_FILES['template_file'])) {
+        error_log('CFP Workshop: No file in $_FILES array');
         echo '<div class="notice notice-error"><p>No file was selected for upload.</p></div>';
         return;
     }
     
     $uploaded_file = $_FILES['template_file'];
+    error_log('CFP Workshop: File upload details - ' . print_r($uploaded_file, true));
     
     // Detailed error checking
     if ($uploaded_file['error'] !== UPLOAD_ERR_OK) {
         $error_message = cfpew_get_upload_error_message($uploaded_file['error']);
+        error_log('CFP Workshop: Upload error - Code: ' . $uploaded_file['error'] . ', Message: ' . $error_message);
         echo '<div class="notice notice-error"><p>' . $error_message . '</p></div>';
         return;
     }
