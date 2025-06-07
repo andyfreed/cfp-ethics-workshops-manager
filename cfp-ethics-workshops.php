@@ -3,7 +3,7 @@
  * Plugin Name: CFP Ethics Workshops Manager
  * Plugin URI: https://bhfe.com
  * Description: Manages CFP Ethics Workshops with historical data, upcoming workshops, and attendance sign-in
- * Version: 1.0.6
+ * Version: 1.0.7
  * Author: Skynet
  * License: GPL v2 or later
  */
@@ -1089,7 +1089,10 @@ function cfpew_templates_page() {
                             <th><label for="template_file">Template File</label></th>
                             <td>
                                 <input type="file" name="template_file" id="template_file" accept=".pdf,.ppt,.pptx" required>
-                                <p class="description">Upload your PDF (.pdf) or PowerPoint (.ppt, .pptx) template file</p>
+                                <p class="description">
+                                    Upload your PDF (.pdf) or PowerPoint (.ppt, .pptx) template file<br>
+                                    <strong>Maximum file size: <?php echo round(cfpew_get_max_upload_size() / 1024 / 1024, 1); ?>MB</strong>
+                                </p>
                             </td>
                         </tr>
                         <tr>
@@ -1112,7 +1115,10 @@ function cfpew_templates_page() {
                     </table>
                     
                     <p class="submit">
-                        <input type="submit" name="cfpew_upload_template" class="button-primary" value="Upload Template">
+                        <input type="submit" name="cfpew_upload_template" class="button-primary" value="Upload Template" id="cfp-upload-btn">
+                        <span id="cfp-upload-progress" style="display:none; margin-left: 10px;">
+                            <span class="spinner is-active"></span> Uploading... Please wait.
+                        </span>
                     </p>
                 </form>
             </div>
@@ -1205,7 +1211,34 @@ function cfpew_templates_page() {
                 grid-template-columns: 1fr;
             }
         }
+        
+        #cfp-upload-progress .spinner {
+            float: none;
+            margin: 0 5px 0 0;
+        }
         </style>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            $('#cfp-upload-btn').closest('form').on('submit', function() {
+                var fileInput = $('#template_file')[0];
+                if (fileInput.files.length > 0) {
+                    var fileSize = fileInput.files[0].size;
+                    var maxSize = <?php echo cfpew_get_max_upload_size(); ?>;
+                    
+                    if (fileSize > maxSize) {
+                        var maxMB = Math.round(maxSize / 1024 / 1024 * 10) / 10;
+                        var fileMB = Math.round(fileSize / 1024 / 1024 * 10) / 10;
+                        alert('File too large (' + fileMB + 'MB). Maximum size: ' + maxMB + 'MB');
+                        return false;
+                    }
+                    
+                    $('#cfp-upload-btn').prop('disabled', true).val('Uploading...');
+                    $('#cfp-upload-progress').show();
+                }
+            });
+        });
+        </script>
     </div>
     <?php
 }
@@ -1216,34 +1249,79 @@ function cfpew_handle_template_upload() {
         wp_die('Security check failed');
     }
     
-    if (!isset($_FILES['template_file']) || $_FILES['template_file']['error'] !== UPLOAD_ERR_OK) {
-        echo '<div class="notice notice-error"><p>File upload failed. Please try again.</p></div>';
+    // Check if file was uploaded
+    if (!isset($_FILES['template_file'])) {
+        echo '<div class="notice notice-error"><p>No file was selected for upload.</p></div>';
         return;
     }
     
     $uploaded_file = $_FILES['template_file'];
+    
+    // Detailed error checking
+    if ($uploaded_file['error'] !== UPLOAD_ERR_OK) {
+        $error_message = cfpew_get_upload_error_message($uploaded_file['error']);
+        echo '<div class="notice notice-error"><p>' . $error_message . '</p></div>';
+        return;
+    }
+    
+    // Check file size (default limit and actual size)
+    $max_size = cfpew_get_max_upload_size();
+    if ($uploaded_file['size'] > $max_size) {
+        $max_mb = round($max_size / 1024 / 1024, 1);
+        $actual_mb = round($uploaded_file['size'] / 1024 / 1024, 1);
+        echo '<div class="notice notice-error"><p>File too large. Maximum size: ' . $max_mb . 'MB, your file: ' . $actual_mb . 'MB</p></div>';
+        return;
+    }
+    
+    // Validate file type
     $file_extension = strtolower(pathinfo($uploaded_file['name'], PATHINFO_EXTENSION));
     $template_type = sanitize_text_field($_POST['template_type']);
     
-    // Validate file type
     $allowed_extensions = array('pdf', 'ppt', 'pptx');
     if (!in_array($file_extension, $allowed_extensions)) {
-        echo '<div class="notice notice-error"><p>Invalid file type. Please upload PDF, PPT, or PPTX files only.</p></div>';
+        echo '<div class="notice notice-error"><p>Invalid file type: .' . esc_html($file_extension) . '. Please upload PDF, PPT, or PPTX files only.</p></div>';
+        return;
+    }
+    
+    // Validate template type matches file
+    if ($template_type == 'pdf' && $file_extension !== 'pdf') {
+        echo '<div class="notice notice-error"><p>Template type "PDF" selected but file is .' . esc_html($file_extension) . '</p></div>';
+        return;
+    }
+    if ($template_type == 'powerpoint' && !in_array($file_extension, array('ppt', 'pptx'))) {
+        echo '<div class="notice notice-error"><p>Template type "PowerPoint" selected but file is .' . esc_html($file_extension) . '</p></div>';
         return;
     }
     
     // Create uploads directory
     $upload_dir = wp_upload_dir();
     $cfp_dir = $upload_dir['basedir'] . '/cfp-workshop-templates/';
+    
     if (!file_exists($cfp_dir)) {
-        wp_mkdir_p($cfp_dir);
+        if (!wp_mkdir_p($cfp_dir)) {
+            echo '<div class="notice notice-error"><p>Could not create upload directory. Please check permissions.</p></div>';
+            return;
+        }
+    }
+    
+    // Check directory permissions
+    if (!is_writable($cfp_dir)) {
+        echo '<div class="notice notice-error"><p>Upload directory is not writable. Please check permissions.</p></div>';
+        return;
     }
     
     // Generate unique filename
     $filename = uniqid('cfp_template_') . '.' . $file_extension;
     $file_path = $cfp_dir . $filename;
     
+    // Attempt to move uploaded file
     if (move_uploaded_file($uploaded_file['tmp_name'], $file_path)) {
+        // Verify file was actually saved
+        if (!file_exists($file_path)) {
+            echo '<div class="notice notice-error"><p>File upload completed but file not found. Please try again.</p></div>';
+            return;
+        }
+        
         global $wpdb;
         $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
         
@@ -1257,12 +1335,62 @@ function cfpew_handle_template_upload() {
         ));
         
         if ($result) {
-            echo '<div class="notice notice-success"><p>Template uploaded successfully!</p></div>';
+            $file_mb = round(filesize($file_path) / 1024 / 1024, 1);
+            echo '<div class="notice notice-success"><p>Template uploaded successfully! File size: ' . $file_mb . 'MB</p></div>';
         } else {
-            echo '<div class="notice notice-error"><p>Database error: Could not save template information.</p></div>';
+            echo '<div class="notice notice-error"><p>Database error: Could not save template information. Error: ' . $wpdb->last_error . '</p></div>';
+            // Clean up uploaded file if database insert failed
+            unlink($file_path);
         }
     } else {
-        echo '<div class="notice notice-error"><p>Failed to save uploaded file. Please check permissions.</p></div>';
+        echo '<div class="notice notice-error"><p>Failed to save uploaded file. Error details:<br>';
+        echo 'Temporary file: ' . esc_html($uploaded_file['tmp_name']) . '<br>';
+        echo 'Target path: ' . esc_html($file_path) . '<br>';
+        echo 'Directory writable: ' . (is_writable($cfp_dir) ? 'Yes' : 'No') . '<br>';
+        echo 'Please check server permissions and try again.</p></div>';
+    }
+}
+
+// Get upload error message
+function cfpew_get_upload_error_message($error_code) {
+    switch ($error_code) {
+        case UPLOAD_ERR_INI_SIZE:
+            return 'File is too large (exceeds server upload_max_filesize limit)';
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'File is too large (exceeds form MAX_FILE_SIZE limit)';
+        case UPLOAD_ERR_PARTIAL:
+            return 'File was only partially uploaded. Please try again.';
+        case UPLOAD_ERR_NO_FILE:
+            return 'No file was uploaded';
+        case UPLOAD_ERR_NO_TMP_DIR:
+            return 'Server missing temporary upload directory';
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'Failed to write file to disk (server permissions issue)';
+        case UPLOAD_ERR_EXTENSION:
+            return 'Upload stopped by server extension';
+        default:
+            return 'Unknown upload error (code: ' . $error_code . ')';
+    }
+}
+
+// Get maximum upload size
+function cfpew_get_max_upload_size() {
+    $max_upload = cfpew_parse_size(ini_get('upload_max_filesize'));
+    $max_post = cfpew_parse_size(ini_get('post_max_size'));
+    $memory_limit = cfpew_parse_size(ini_get('memory_limit'));
+    
+    return min($max_upload, $max_post, $memory_limit);
+}
+
+// Parse size string (like "32M") to bytes
+function cfpew_parse_size($size) {
+    $unit = preg_replace('/[^bkmgtpezy]/i', '', $size);
+    $size = preg_replace('/[^0-9\.]/', '', $size);
+    
+    if ($unit) {
+        return round($size * pow(1024, stripos('bkmgtpezy', $unit[0])));
+    } else {
+        return round($size);
     }
 }
 
