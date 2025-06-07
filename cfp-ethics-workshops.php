@@ -3,7 +3,7 @@
  * Plugin Name: CFP Ethics Workshops Manager
  * Plugin URI: https://bhfe.com
  * Description: Manages CFP Ethics Workshops with historical data, upcoming workshops, and attendance sign-in
- * Version: 1.0.4
+ * Version: 1.0.5
  * Author: Skynet
  * License: GPL v2 or later
  */
@@ -145,6 +145,15 @@ function cfpew_admin_menu() {
         'manage_options',
         'cfp-workshops-signin-add',
         'cfpew_add_signin_page'
+    );
+    
+    add_submenu_page(
+        'cfp-workshops',
+        'Workshop Dashboard',
+        'Dashboard',
+        'manage_options',
+        'cfp-workshops-dashboard',
+        'cfpew_dashboard_page'
     );
     
     add_submenu_page(
@@ -990,11 +999,404 @@ function cfpew_import_csv($file_path) {
     echo '</p></div>';
 }
 
+// Admin Dashboard page
+function cfpew_dashboard_page() {
+    global $wpdb;
+    $workshops_table = $wpdb->prefix . 'cfp_workshops';
+    
+    // Get filter parameters
+    $show_upcoming = !isset($_GET['show_past']) || $_GET['show_past'] != '1';
+    $chapter_filter = isset($_GET['chapter']) ? sanitize_text_field($_GET['chapter']) : '';
+    $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 50;
+    
+    // Build query
+    $where_conditions = array();
+    $query_params = array();
+    
+    if ($show_upcoming) {
+        $where_conditions[] = "seminar_date >= CURDATE()";
+    } else {
+        $where_conditions[] = "seminar_date < CURDATE()";
+    }
+    
+    if (!empty($chapter_filter)) {
+        $where_conditions[] = "customer = %s";
+        $query_params[] = $chapter_filter;
+    }
+    
+    $where_clause = !empty($where_conditions) ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
+    
+    $query = "SELECT * FROM $workshops_table $where_clause ORDER BY seminar_date DESC LIMIT %d";
+    $query_params[] = $limit;
+    
+    $workshops = $wpdb->get_results($wpdb->prepare($query, $query_params));
+    
+    // Get unique chapters for filter
+    $chapters = $wpdb->get_col("SELECT DISTINCT customer FROM $workshops_table ORDER BY customer");
+    
+    ?>
+    <div class="wrap cfp-workshop-dashboard-admin">
+        <div class="cfp-admin-header">
+            <h1>Workshop Dashboard</h1>
+            <p class="description">Overview of workshops with costs, descriptions, and materials</p>
+        </div>
+        
+        <!-- Filters -->
+        <div class="cfp-admin-filters">
+            <form method="get" action="">
+                <input type="hidden" name="page" value="cfp-workshops-dashboard">
+                
+                <div class="filter-group">
+                    <label for="timeframe">Show:</label>
+                    <select name="show_past" id="timeframe" onchange="this.form.submit()">
+                        <option value="0" <?php selected(!isset($_GET['show_past']) || $_GET['show_past'] != '1'); ?>>Upcoming Workshops</option>
+                        <option value="1" <?php selected(isset($_GET['show_past']) && $_GET['show_past'] == '1'); ?>>Past Workshops</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="chapter">Chapter:</label>
+                    <select name="chapter" id="chapter" onchange="this.form.submit()">
+                        <option value="">All Chapters</option>
+                        <?php foreach ($chapters as $chapter): ?>
+                            <option value="<?php echo esc_attr($chapter); ?>" <?php selected($chapter_filter, $chapter); ?>>
+                                <?php echo esc_html($chapter); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="limit">Limit:</label>
+                    <select name="limit" id="limit" onchange="this.form.submit()">
+                        <option value="25" <?php selected($limit, 25); ?>>25</option>
+                        <option value="50" <?php selected($limit, 50); ?>>50</option>
+                        <option value="100" <?php selected($limit, 100); ?>>100</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="button">Apply Filters</button>
+            </form>
+        </div>
+        
+        <!-- Workshop Cards -->
+        <?php if ($workshops): ?>
+            <div class="cfp-admin-workshops-grid">
+                <?php foreach ($workshops as $workshop): ?>
+                    <div class="cfp-admin-workshop-card">
+                        <div class="workshop-header">
+                            <h3><?php echo esc_html($workshop->customer); ?></h3>
+                            <div class="workshop-date">
+                                <strong><?php echo date('F j, Y', strtotime($workshop->seminar_date)); ?></strong>
+                                <?php if (strtotime($workshop->seminar_date) >= strtotime('today')): ?>
+                                    <span class="status-badge upcoming">Upcoming</span>
+                                <?php else: ?>
+                                    <span class="status-badge past">Past</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        
+                        <div class="workshop-details">
+                            <?php if ($workshop->instructor): ?>
+                                <div class="detail-item">
+                                    <strong>Instructor:</strong> <?php echo esc_html($workshop->instructor); ?>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($workshop->location || $workshop->time_location): ?>
+                                <div class="detail-item">
+                                    <strong>Location:</strong> <?php echo esc_html($workshop->location ?: $workshop->time_location); ?>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($workshop->attendees_count > 0): ?>
+                                <div class="detail-item">
+                                    <strong>Attendees:</strong> <?php echo esc_html($workshop->attendees_count); ?>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($workshop->workshop_cost > 0): ?>
+                                <div class="detail-item cost-item">
+                                    <strong>Cost:</strong> $<?php echo number_format($workshop->workshop_cost, 2); ?>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($workshop->workshop_description): ?>
+                                <div class="detail-item description-item">
+                                    <strong>Description:</strong>
+                                    <div class="description-content">
+                                        <?php echo nl2br(esc_html($workshop->workshop_description)); ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <?php if ($workshop->materials_files): ?>
+                            <div class="workshop-materials">
+                                <h4>Workshop Materials</h4>
+                                <div class="materials-list">
+                                    <?php 
+                                    $files = explode("\n", $workshop->materials_files);
+                                    foreach ($files as $file) {
+                                        $file = trim($file);
+                                        if (empty($file)) continue;
+                                        
+                                        if (filter_var($file, FILTER_VALIDATE_URL)) {
+                                            $filename = basename(parse_url($file, PHP_URL_PATH)) ?: 'Download File';
+                                            echo '<div class="file-item">';
+                                            echo '<a href="' . esc_url($file) . '" target="_blank" class="file-link">';
+                                            echo '<span class="dashicons dashicons-media-document"></span> ' . esc_html($filename);
+                                            echo '</a></div>';
+                                        } else {
+                                            echo '<div class="file-item">';
+                                            echo '<span class="dashicons dashicons-media-document"></span> ' . esc_html($file);
+                                            echo '</div>';
+                                        }
+                                    }
+                                    ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <div class="workshop-contact">
+                            <?php if ($workshop->email): ?>
+                                <div class="contact-item">
+                                    <strong>Contact:</strong> 
+                                    <a href="mailto:<?php echo esc_attr($workshop->email); ?>">
+                                        <?php echo esc_html($workshop->contact_name ?: $workshop->email); ?>
+                                    </a>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <?php if ($workshop->webinar_signin_link): ?>
+                                <div class="contact-item">
+                                    <a href="<?php echo esc_url($workshop->webinar_signin_link); ?>" target="_blank" class="button button-primary button-small">
+                                        Join Webinar
+                                    </a>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <div class="workshop-actions">
+                            <a href="?page=cfp-workshops-add&id=<?php echo $workshop->id; ?>" class="button button-small">Edit Workshop</a>
+                            <a href="?page=cfp-workshops-signins&workshop_id=<?php echo $workshop->id; ?>" class="button button-small">View Sign-ins</a>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div class="cfp-no-workshops">
+                <div class="notice notice-warning">
+                    <p>No workshops found matching your criteria.</p>
+                </div>
+            </div>
+        <?php endif; ?>
+        
+        <style>
+        .cfp-workshop-dashboard-admin {
+            margin-right: 20px;
+        }
+        
+        .cfp-admin-header {
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .cfp-admin-header h1 {
+            margin-bottom: 5px;
+        }
+        
+        .cfp-admin-filters {
+            background: #fff;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        
+        .cfp-admin-filters form {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .filter-group label {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        
+        .cfp-admin-workshops-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        
+        .cfp-admin-workshop-card {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .workshop-header {
+            border-bottom: 1px solid #eee;
+            padding-bottom: 15px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        
+        .workshop-header h3 {
+            margin: 0;
+            color: #23282d;
+            font-size: 18px;
+        }
+        
+        .workshop-date {
+            text-align: right;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 5px;
+        }
+        
+        .status-badge.upcoming {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .status-badge.past {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .workshop-details {
+            margin-bottom: 15px;
+        }
+        
+        .detail-item {
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+        
+        .cost-item {
+            background: #e8f5e8;
+            padding: 8px;
+            border-radius: 3px;
+            border-left: 3px solid #46b450;
+        }
+        
+        .description-item {
+            background: #f7f7f7;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+        }
+        
+        .description-content {
+            margin-top: 5px;
+            color: #555;
+        }
+        
+        .workshop-materials {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 3px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        
+        .workshop-materials h4 {
+            margin: 0 0 10px;
+            color: #856404;
+        }
+        
+        .materials-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .file-item {
+            display: flex;
+            align-items: center;
+        }
+        
+        .file-link {
+            color: #0073aa;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .file-link:hover {
+            color: #005177;
+        }
+        
+        .workshop-contact {
+            border-top: 1px solid #eee;
+            padding-top: 15px;
+            margin-top: 15px;
+        }
+        
+        .contact-item {
+            margin-bottom: 8px;
+        }
+        
+        .workshop-actions {
+            border-top: 1px solid #eee;
+            padding-top: 15px;
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .cfp-no-workshops {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        @media (max-width: 768px) {
+            .cfp-admin-workshops-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .cfp-admin-filters form {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .filter-group {
+                justify-content: space-between;
+            }
+        }
+        </style>
+    </div>
+    <?php
+}
+
 // Shortcode for public sign-in form
 add_shortcode('cfp_workshop_signin', 'cfpew_signin_shortcode');
 
-// Shortcode for workshop dashboard
-add_shortcode('cfp_workshop_dashboard', 'cfpew_dashboard_shortcode');
+// Shortcode for workshop dashboard (commented out - using admin dashboard instead)
+// add_shortcode('cfp_workshop_dashboard', 'cfpew_dashboard_shortcode');
 function cfpew_signin_shortcode($atts) {
     global $wpdb;
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
