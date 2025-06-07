@@ -3,7 +3,7 @@
  * Plugin Name: CFP Ethics Workshops Manager
  * Plugin URI: https://bhfe.com
  * Description: Manages CFP Ethics Workshops with historical data, upcoming workshops, and attendance sign-in
- * Version: 1.0.5
+ * Version: 1.0.6
  * Author: Skynet
  * License: GPL v2 or later
  */
@@ -93,9 +93,25 @@ function cfpew_create_tables() {
         KEY idx_email (email)
     ) $charset_collate;";
     
+    // Templates table for PDF and PowerPoint templates
+    $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
+    $sql_templates = "CREATE TABLE $templates_table (
+        id int(11) NOT NULL AUTO_INCREMENT,
+        template_name varchar(255) NOT NULL,
+        template_type enum('pdf','powerpoint') NOT NULL,
+        file_path varchar(500) NOT NULL,
+        original_filename varchar(255) NOT NULL,
+        field_mappings text DEFAULT NULL,
+        is_active tinyint(1) DEFAULT 1,
+        upload_date datetime DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_template_type (template_type)
+    ) $charset_collate;";
+    
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql_workshops);
     dbDelta($sql_signins);
+    dbDelta($sql_templates);
 }
 
 // Add admin menu
@@ -158,6 +174,15 @@ function cfpew_admin_menu() {
     
     add_submenu_page(
         'cfp-workshops',
+        'Materials Templates',
+        'Materials Templates',
+        'manage_options',
+        'cfp-workshops-templates',
+        'cfpew_templates_page'
+    );
+    
+    add_submenu_page(
+        'cfp-workshops',
         'Import Data',
         'Import Data',
         'manage_options',
@@ -175,6 +200,12 @@ function cfpew_workshops_page() {
     if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
         $wpdb->delete($table_name, array('id' => intval($_GET['id'])));
         echo '<div class="notice notice-success"><p>Workshop deleted successfully!</p></div>';
+    }
+    
+    // Handle generate materials action
+    if (isset($_GET['action']) && $_GET['action'] == 'generate_materials' && isset($_GET['id'])) {
+        cfpew_generate_workshop_materials(intval($_GET['id']));
+        return;
     }
     
     // Pagination
@@ -223,6 +254,9 @@ function cfpew_workshops_page() {
                         <a href="?page=cfp-workshops-add&id=<?php echo $workshop->id; ?>" class="button button-small">Edit</a>
                         <a href="?page=cfp-workshops&action=delete&id=<?php echo $workshop->id; ?>" 
                            class="button button-small" onclick="return confirm('Are you sure?')">Delete</a>
+                        <br><br>
+                        <a href="?page=cfp-workshops&action=generate_materials&id=<?php echo $workshop->id; ?>" 
+                           class="button button-primary button-small">📄 Generate Materials</a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -997,6 +1031,511 @@ function cfpew_import_csv($file_path) {
     echo '<div class="notice notice-success"><p>';
     echo sprintf('Import complete! %d workshops imported, %d workshops updated.', $imported, $updated);
     echo '</p></div>';
+}
+
+// =============================================================================
+// WORKSHOP MATERIALS GENERATION SYSTEM
+// =============================================================================
+
+// Templates management page
+function cfpew_templates_page() {
+    global $wpdb;
+    $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
+    
+    // Handle template upload
+    if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['cfpew_upload_template'])) {
+        cfpew_handle_template_upload();
+    }
+    
+    // Handle template deletion
+    if (isset($_GET['action']) && $_GET['action'] == 'delete_template' && isset($_GET['template_id'])) {
+        cfpew_delete_template(intval($_GET['template_id']));
+    }
+    
+    // Get existing templates
+    $templates = $wpdb->get_results("SELECT * FROM $templates_table ORDER BY template_type, template_name");
+    
+    ?>
+    <div class="wrap">
+        <h1>Workshop Materials Templates</h1>
+        <p class="description">Upload and manage PDF and PowerPoint templates for workshop materials generation.</p>
+        
+        <div class="cfp-templates-container">
+            <!-- Upload Section -->
+            <div class="cfp-upload-section">
+                <h2>Upload New Template</h2>
+                <form method="post" enctype="multipart/form-data" class="cfp-upload-form">
+                    <?php wp_nonce_field('cfpew_upload_template', 'cfpew_template_nonce'); ?>
+                    
+                    <table class="form-table">
+                        <tr>
+                            <th><label for="template_name">Template Name</label></th>
+                            <td>
+                                <input type="text" name="template_name" id="template_name" class="regular-text" required>
+                                <p class="description">Give your template a descriptive name (e.g., "Workshop Course Materials PDF")</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="template_type">Template Type</label></th>
+                            <td>
+                                <select name="template_type" id="template_type" required>
+                                    <option value="">Select type...</option>
+                                    <option value="pdf">PDF Template</option>
+                                    <option value="powerpoint">PowerPoint Template</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="template_file">Template File</label></th>
+                            <td>
+                                <input type="file" name="template_file" id="template_file" accept=".pdf,.ppt,.pptx" required>
+                                <p class="description">Upload your PDF (.pdf) or PowerPoint (.ppt, .pptx) template file</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="field_mappings">Field Mappings</label></th>
+                            <td>
+                                <textarea name="field_mappings" id="field_mappings" class="large-text" rows="10" placeholder="Enter field mappings (one per line):
+{{workshop_date}} - Workshop date
+{{workshop_time}} - Workshop time  
+{{location}} - Workshop location
+{{instructor_name}} - Instructor name
+{{chapter_name}} - Chapter/customer name
+{{contact_email}} - Contact email
+{{contact_phone}} - Contact phone
+{{workshop_cost}} - Workshop cost
+{{registration_link}} - Registration link
+{{webinar_link}} - Webinar link"></textarea>
+                                <p class="description">Define which placeholders in your template should be replaced with workshop data</p>
+                            </td>
+                        </tr>
+                    </table>
+                    
+                    <p class="submit">
+                        <input type="submit" name="cfpew_upload_template" class="button-primary" value="Upload Template">
+                    </p>
+                </form>
+            </div>
+            
+            <!-- Templates List -->
+            <div class="cfp-templates-list">
+                <h2>Existing Templates</h2>
+                
+                <?php if ($templates): ?>
+                    <table class="wp-list-table widefat fixed striped">
+                        <thead>
+                            <tr>
+                                <th>Template Name</th>
+                                <th>Type</th>
+                                <th>Original Filename</th>
+                                <th>Upload Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($templates as $template): ?>
+                            <tr>
+                                <td><strong><?php echo esc_html($template->template_name); ?></strong></td>
+                                <td>
+                                    <span class="cfp-template-type <?php echo esc_attr($template->template_type); ?>">
+                                        <?php echo ucfirst($template->template_type); ?>
+                                    </span>
+                                </td>
+                                <td><?php echo esc_html($template->original_filename); ?></td>
+                                <td><?php echo date('M j, Y', strtotime($template->upload_date)); ?></td>
+                                <td>
+                                    <a href="?page=cfp-workshops-templates&action=download_template&template_id=<?php echo $template->id; ?>" 
+                                       class="button button-small">Download</a>
+                                    <a href="?page=cfp-workshops-templates&action=delete_template&template_id=<?php echo $template->id; ?>" 
+                                       class="button button-small" onclick="return confirm('Are you sure?')">Delete</a>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <div class="notice notice-info">
+                        <p>No templates uploaded yet. Upload your first template above to get started.</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <style>
+        .cfp-templates-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        
+        .cfp-upload-section, .cfp-templates-list {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 20px;
+        }
+        
+        .cfp-upload-section h2, .cfp-templates-list h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .cfp-template-type {
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .cfp-template-type.pdf {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .cfp-template-type.powerpoint {
+            background: #d63384;
+            color: white;
+        }
+        
+        @media (max-width: 1200px) {
+            .cfp-templates-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        </style>
+    </div>
+    <?php
+}
+
+// Handle template upload
+function cfpew_handle_template_upload() {
+    if (!isset($_POST['cfpew_template_nonce']) || !wp_verify_nonce($_POST['cfpew_template_nonce'], 'cfpew_upload_template')) {
+        wp_die('Security check failed');
+    }
+    
+    if (!isset($_FILES['template_file']) || $_FILES['template_file']['error'] !== UPLOAD_ERR_OK) {
+        echo '<div class="notice notice-error"><p>File upload failed. Please try again.</p></div>';
+        return;
+    }
+    
+    $uploaded_file = $_FILES['template_file'];
+    $file_extension = strtolower(pathinfo($uploaded_file['name'], PATHINFO_EXTENSION));
+    $template_type = sanitize_text_field($_POST['template_type']);
+    
+    // Validate file type
+    $allowed_extensions = array('pdf', 'ppt', 'pptx');
+    if (!in_array($file_extension, $allowed_extensions)) {
+        echo '<div class="notice notice-error"><p>Invalid file type. Please upload PDF, PPT, or PPTX files only.</p></div>';
+        return;
+    }
+    
+    // Create uploads directory
+    $upload_dir = wp_upload_dir();
+    $cfp_dir = $upload_dir['basedir'] . '/cfp-workshop-templates/';
+    if (!file_exists($cfp_dir)) {
+        wp_mkdir_p($cfp_dir);
+    }
+    
+    // Generate unique filename
+    $filename = uniqid('cfp_template_') . '.' . $file_extension;
+    $file_path = $cfp_dir . $filename;
+    
+    if (move_uploaded_file($uploaded_file['tmp_name'], $file_path)) {
+        global $wpdb;
+        $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
+        
+        $result = $wpdb->insert($templates_table, array(
+            'template_name' => sanitize_text_field($_POST['template_name']),
+            'template_type' => $template_type,
+            'file_path' => $file_path,
+            'original_filename' => sanitize_file_name($uploaded_file['name']),
+            'field_mappings' => sanitize_textarea_field($_POST['field_mappings']),
+            'upload_date' => current_time('mysql')
+        ));
+        
+        if ($result) {
+            echo '<div class="notice notice-success"><p>Template uploaded successfully!</p></div>';
+        } else {
+            echo '<div class="notice notice-error"><p>Database error: Could not save template information.</p></div>';
+        }
+    } else {
+        echo '<div class="notice notice-error"><p>Failed to save uploaded file. Please check permissions.</p></div>';
+    }
+}
+
+// Delete template
+function cfpew_delete_template($template_id) {
+    global $wpdb;
+    $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
+    
+    $template = $wpdb->get_row($wpdb->prepare("SELECT * FROM $templates_table WHERE id = %d", $template_id));
+    
+    if ($template) {
+        // Delete file
+        if (file_exists($template->file_path)) {
+            unlink($template->file_path);
+        }
+        
+        // Delete database record
+        $wpdb->delete($templates_table, array('id' => $template_id));
+        echo '<div class="notice notice-success"><p>Template deleted successfully!</p></div>';
+    }
+}
+
+// Generate workshop materials
+function cfpew_generate_workshop_materials($workshop_id) {
+    global $wpdb;
+    
+    // Get workshop data
+    $workshop = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}cfp_workshops WHERE id = %d", 
+        $workshop_id
+    ));
+    
+    if (!$workshop) {
+        wp_die('Workshop not found');
+    }
+    
+    // Get available templates
+    $templates = $wpdb->get_results(
+        "SELECT * FROM {$wpdb->prefix}cfp_workshop_templates WHERE is_active = 1 ORDER BY template_type"
+    );
+    
+    if (empty($templates)) {
+        wp_die('No templates available. Please upload templates first.');
+    }
+    
+    // Include required libraries
+    cfpew_include_pdf_libraries();
+    
+    $generated_files = array();
+    $has_errors = false;
+    
+    foreach ($templates as $template) {
+        try {
+            if ($template->template_type == 'pdf') {
+                $result = cfpew_generate_pdf_materials($workshop, $template);
+            } else {
+                $result = cfpew_generate_powerpoint_materials($workshop, $template);
+            }
+            
+            if ($result) {
+                $generated_files[] = $result;
+            }
+        } catch (Exception $e) {
+            $has_errors = true;
+            error_log('CFP Workshop Materials Generation Error: ' . $e->getMessage());
+        }
+    }
+    
+    if (empty($generated_files)) {
+        wp_die('Failed to generate materials. Please check your templates and try again.');
+    }
+    
+    // If multiple files, create ZIP
+    if (count($generated_files) > 1) {
+        $zip_file = cfpew_create_materials_zip($workshop, $generated_files);
+        cfpew_download_file($zip_file, "workshop-materials-{$workshop->customer}-" . date('Y-m-d', strtotime($workshop->seminar_date)) . '.zip');
+    } else {
+        // Single file download
+        $file = $generated_files[0];
+        $filename = basename($file['path']);
+        cfpew_download_file($file['path'], $filename);
+    }
+}
+
+// Include PDF libraries (using TCPDF)
+function cfpew_include_pdf_libraries() {
+    if (!class_exists('TCPDF')) {
+        // You would need to include TCPDF library here
+        // For now, we'll use a simplified approach with basic PHP
+        
+        // Alternative: Use mPDF or DomPDF libraries
+        // require_once CFPEW_PLUGIN_PATH . 'vendor/autoload.php';
+    }
+}
+
+// Generate PDF materials
+function cfpew_generate_pdf_materials($workshop, $template) {
+    // Get template data
+    $field_mappings = cfpew_parse_field_mappings($template->field_mappings);
+    $replacement_data = cfpew_get_workshop_replacement_data($workshop);
+    
+    // For now, we'll create a simple text-based approach
+    // In production, you'd use FPDI + TCPDF to overlay text on existing PDFs
+    
+    $upload_dir = wp_upload_dir();
+    $output_dir = $upload_dir['basedir'] . '/cfp-generated-materials/';
+    if (!file_exists($output_dir)) {
+        wp_mkdir_p($output_dir);
+    }
+    
+    $output_filename = 'workshop-materials-' . $workshop->id . '-' . uniqid() . '.pdf';
+    $output_path = $output_dir . $output_filename;
+    
+    // Simple PDF generation (you would replace this with TCPDF/FPDI)
+    $content = cfpew_generate_simple_pdf_content($workshop, $field_mappings, $replacement_data);
+    
+    // For demonstration, create a text file (replace with actual PDF generation)
+    file_put_contents(str_replace('.pdf', '.txt', $output_path), $content);
+    
+    return array(
+        'path' => str_replace('.pdf', '.txt', $output_path),
+        'name' => str_replace('.pdf', '.txt', $output_filename),
+        'type' => 'pdf'
+    );
+}
+
+// Generate PowerPoint materials
+function cfpew_generate_powerpoint_materials($workshop, $template) {
+    // Similar to PDF generation but for PowerPoint
+    // You would use PHPPresentation library here
+    
+    $field_mappings = cfpew_parse_field_mappings($template->field_mappings);
+    $replacement_data = cfpew_get_workshop_replacement_data($workshop);
+    
+    $upload_dir = wp_upload_dir();
+    $output_dir = $upload_dir['basedir'] . '/cfp-generated-materials/';
+    if (!file_exists($output_dir)) {
+        wp_mkdir_p($output_dir);
+    }
+    
+    $output_filename = 'workshop-slides-' . $workshop->id . '-' . uniqid() . '.pptx';
+    $output_path = $output_dir . $output_filename;
+    
+    // Simple PowerPoint generation placeholder
+    $content = cfpew_generate_simple_ppt_content($workshop, $field_mappings, $replacement_data);
+    
+    // For demonstration, create a text file (replace with actual PPTX generation)
+    file_put_contents(str_replace('.pptx', '.txt', $output_path), $content);
+    
+    return array(
+        'path' => str_replace('.pptx', '.txt', $output_path),
+        'name' => str_replace('.pptx', '.txt', $output_filename),
+        'type' => 'powerpoint'
+    );
+}
+
+// Parse field mappings from template
+function cfpew_parse_field_mappings($mappings_text) {
+    $mappings = array();
+    $lines = explode("\n", $mappings_text);
+    
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if (empty($line) || strpos($line, '{{') === false) continue;
+        
+        // Extract placeholder like {{workshop_date}}
+        preg_match('/\{\{([^}]+)\}\}/', $line, $matches);
+        if (isset($matches[1])) {
+            $placeholder = '{{' . $matches[1] . '}}';
+            $description = trim(str_replace($placeholder, '', $line));
+            $mappings[$matches[1]] = array(
+                'placeholder' => $placeholder,
+                'description' => $description
+            );
+        }
+    }
+    
+    return $mappings;
+}
+
+// Get workshop data for replacements
+function cfpew_get_workshop_replacement_data($workshop) {
+    return array(
+        'workshop_date' => date('F j, Y', strtotime($workshop->seminar_date)),
+        'workshop_time' => $workshop->time_location,
+        'location' => $workshop->location ?: $workshop->time_location,
+        'instructor_name' => $workshop->instructor,
+        'chapter_name' => $workshop->customer,
+        'contact_email' => $workshop->email,
+        'contact_phone' => $workshop->phone,
+        'contact_name' => $workshop->contact_name,
+        'workshop_cost' => $workshop->workshop_cost ? '$' . number_format($workshop->workshop_cost, 2) : '',
+        'webinar_link' => $workshop->webinar_signin_link,
+        'workshop_description' => $workshop->workshop_description,
+        'instructor_cfp_id' => $workshop->instructor_cfp_id,
+        'attendees_count' => $workshop->attendees_count
+    );
+}
+
+// Generate simple PDF content (placeholder)
+function cfpew_generate_simple_pdf_content($workshop, $mappings, $data) {
+    $content = "WORKSHOP MATERIALS\n";
+    $content .= "==================\n\n";
+    $content .= "Generated from template with workshop data:\n\n";
+    
+    foreach ($data as $key => $value) {
+        if (!empty($value)) {
+            $content .= ucwords(str_replace('_', ' ', $key)) . ": " . $value . "\n";
+        }
+    }
+    
+    $content .= "\n\n[This is a placeholder. In production, this would be a properly formatted PDF with your template design and the workshop data overlaid on the specified fields.]\n";
+    
+    return $content;
+}
+
+// Generate simple PowerPoint content (placeholder)
+function cfpew_generate_simple_ppt_content($workshop, $mappings, $data) {
+    $content = "WORKSHOP PRESENTATION SLIDES\n";
+    $content .= "============================\n\n";
+    $content .= "Generated from PowerPoint template with workshop data:\n\n";
+    
+    foreach ($data as $key => $value) {
+        if (!empty($value)) {
+            $content .= ucwords(str_replace('_', ' ', $key)) . ": " . $value . "\n";
+        }
+    }
+    
+    $content .= "\n\n[This is a placeholder. In production, this would be a properly formatted PowerPoint presentation with your template design and the workshop data inserted into the specified placeholders.]\n";
+    
+    return $content;
+}
+
+// Create ZIP file with multiple materials
+function cfpew_create_materials_zip($workshop, $files) {
+    $upload_dir = wp_upload_dir();
+    $output_dir = $upload_dir['basedir'] . '/cfp-generated-materials/';
+    
+    $zip_filename = 'workshop-materials-' . $workshop->id . '-' . uniqid() . '.zip';
+    $zip_path = $output_dir . $zip_filename;
+    
+    $zip = new ZipArchive();
+    if ($zip->open($zip_path, ZipArchive::CREATE) === TRUE) {
+        foreach ($files as $file) {
+            $zip->addFile($file['path'], $file['name']);
+        }
+        $zip->close();
+        return $zip_path;
+    }
+    
+    return false;
+}
+
+// Download file
+function cfpew_download_file($file_path, $download_name) {
+    if (!file_exists($file_path)) {
+        wp_die('File not found');
+    }
+    
+    // Set headers for download
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="' . $download_name . '"');
+    header('Content-Length: ' . filesize($file_path));
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Pragma: public');
+    
+    // Output file
+    readfile($file_path);
+    
+    // Clean up - delete generated file after download
+    unlink($file_path);
+    
+    exit;
 }
 
 // Admin Dashboard page
