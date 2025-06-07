@@ -3,7 +3,7 @@
  * Plugin Name: CFP Ethics Workshops Manager
  * Plugin URI: https://bhfe.com
  * Description: Manages CFP Ethics Workshops with historical data, upcoming workshops, and attendance sign-in
- * Version: 1.0.8
+ * Version: 1.0.9
  * Author: Skynet
  * License: GPL v2 or later
  */
@@ -1056,11 +1056,11 @@ function cfpew_templates_page() {
         }
     }
     
-    // Handle template upload
-    if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['cfpew_upload_template'])) {
+    // Handle template upload - check for either button or form submission indicators
+    if ($_SERVER['REQUEST_METHOD'] == 'POST' && (isset($_POST['cfpew_upload_template']) || (isset($_POST['cfpew_template_nonce']) && isset($_FILES['template_file'])))) {
         cfpew_handle_template_upload();
     } elseif ($_SERVER['REQUEST_METHOD'] == 'POST') {
-        echo '<div class="notice notice-warning"><p>POST request received but upload button not detected. Debug info: ' . implode(', ', $debug_info) . '</p></div>';
+        echo '<div class="notice notice-warning"><p>POST request received but upload not processed. Debug info: ' . implode(', ', $debug_info) . '</p></div>';
     }
     
     // Handle template deletion
@@ -1247,8 +1247,10 @@ function cfpew_templates_page() {
         
         <script>
         jQuery(document).ready(function($) {
-            $('#cfp-upload-btn').closest('form').on('submit', function() {
+            $('#cfp-upload-btn').closest('form').on('submit', function(e) {
+                var $form = $(this);
                 var fileInput = $('#template_file')[0];
+                
                 if (fileInput.files.length > 0) {
                     var fileSize = fileInput.files[0].size;
                     var maxSize = <?php echo cfpew_get_max_upload_size(); ?>;
@@ -1260,8 +1262,16 @@ function cfpew_templates_page() {
                         return false;
                     }
                     
-                    $('#cfp-upload-btn').prop('disabled', true).val('Uploading...');
+                    // Add hidden field to ensure upload is detected
+                    if (!$form.find('input[name="cfpew_upload_template"]').length) {
+                        $form.append('<input type="hidden" name="cfpew_upload_template" value="1">');
+                    }
+                    
+                    // Show progress but don't disable button until after a brief delay
                     $('#cfp-upload-progress').show();
+                    setTimeout(function() {
+                        $('#cfp-upload-btn').prop('disabled', true).val('Uploading...');
+                    }, 100);
                 }
             });
         });
