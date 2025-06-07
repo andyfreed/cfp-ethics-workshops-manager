@@ -3,7 +3,7 @@
  * Plugin Name: CFP Ethics Workshops Manager
  * Plugin URI: https://bhfe.com
  * Description: Manages CFP Ethics Workshops with historical data, upcoming workshops, and attendance sign-in
- * Version: 1.0.9
+ * Version: 1.0.10
  * Author: Skynet
  * License: GPL v2 or later
  */
@@ -23,6 +23,18 @@ function cfpew_activate() {
     cfpew_create_tables();
     flush_rewrite_rules();
     set_transient('cfpew_activation_notice', true, 5);
+}
+
+// Check for database updates on plugin load
+add_action('plugins_loaded', 'cfpew_check_database_version');
+function cfpew_check_database_version() {
+    $current_version = get_option('cfpew_db_version', '1.0.0');
+    $plugin_version = '1.0.10';
+    
+    if (version_compare($current_version, $plugin_version, '<')) {
+        cfpew_create_tables();
+        update_option('cfpew_db_version', $plugin_version);
+    }
 }
 
 // Create database tables
@@ -1068,13 +1080,34 @@ function cfpew_templates_page() {
         cfpew_delete_template(intval($_GET['template_id']));
     }
     
+    // Handle manual table creation
+    if (isset($_GET['action']) && $_GET['action'] == 'create_tables' && isset($_GET['cfpew_nonce']) && wp_verify_nonce($_GET['cfpew_nonce'], 'cfpew_create_tables')) {
+        cfpew_create_tables();
+        echo '<div class="notice notice-success"><p>Database tables created/updated successfully!</p></div>';
+    }
+    
+    // Check if templates table exists
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$templates_table'") == $templates_table;
+    
     // Get existing templates
-    $templates = $wpdb->get_results("SELECT * FROM $templates_table ORDER BY template_type, template_name");
+    $templates = array();
+    if ($table_exists) {
+        $templates = $wpdb->get_results("SELECT * FROM $templates_table ORDER BY template_type, template_name");
+    }
     
     ?>
     <div class="wrap">
         <h1>Workshop Materials Templates</h1>
         <p class="description">Upload and manage PDF and PowerPoint templates for workshop materials generation.</p>
+        
+        <?php if (!$table_exists): ?>
+            <!-- Database Fix Notice -->
+            <div class="notice notice-error">
+                <p><strong>Database Table Missing!</strong> The templates table doesn't exist.<br>
+                <a href="<?php echo wp_nonce_url(add_query_arg('action', 'create_tables'), 'cfpew_create_tables', 'cfpew_nonce'); ?>" 
+                   class="button button-primary">Create Database Tables</a></p>
+            </div>
+        <?php endif; ?>
         
         <!-- Server Information -->
         <div class="notice notice-info">
@@ -1090,7 +1123,12 @@ function cfpew_templates_page() {
             <!-- Upload Section -->
             <div class="cfp-upload-section">
                 <h2>Upload New Template</h2>
+                <?php if ($table_exists): ?>
                 <form method="post" enctype="multipart/form-data" class="cfp-upload-form">
+                <?php else: ?>
+                <div class="notice notice-warning inline"><p>Please create the database tables first before uploading templates.</p></div>
+                <form method="post" enctype="multipart/form-data" class="cfp-upload-form" style="opacity:0.5; pointer-events:none;">
+                <?php endif; ?>
                     <?php wp_nonce_field('cfpew_upload_template', 'cfpew_template_nonce'); ?>
                     <input type="hidden" name="MAX_FILE_SIZE" value="<?php echo cfpew_get_max_upload_size(); ?>">
                     
@@ -1186,9 +1224,13 @@ function cfpew_templates_page() {
                             <?php endforeach; ?>
                         </tbody>
                     </table>
-                <?php else: ?>
+                <?php elseif ($table_exists): ?>
                     <div class="notice notice-info">
                         <p>No templates uploaded yet. Upload your first template above to get started.</p>
+                    </div>
+                <?php else: ?>
+                    <div class="notice notice-warning">
+                        <p>Database table not found. Please create the database tables first.</p>
                     </div>
                 <?php endif; ?>
             </div>
