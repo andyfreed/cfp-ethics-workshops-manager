@@ -126,8 +126,8 @@ function cfpew_create_tables() {
     dbDelta($sql_templates);
 }
 
-// Add admin menu - TEMPORARILY DISABLED FOR TESTING
-// add_action('admin_menu', 'cfpew_admin_menu');
+// Add admin menu
+add_action('admin_menu', 'cfpew_admin_menu');
 function cfpew_admin_menu() {
     add_menu_page(
         'CFP Ethics Workshops',
