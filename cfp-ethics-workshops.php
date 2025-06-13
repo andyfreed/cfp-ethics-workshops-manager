@@ -126,6 +126,38 @@ function cfpew_create_tables() {
     dbDelta($sql_templates);
 }
 
+// Handle downloads early (before any output)
+add_action('admin_init', 'cfpew_handle_early_downloads');
+function cfpew_handle_early_downloads() {
+    // Only process downloads on our admin pages
+    if (!is_admin() || !isset($_GET['page'])) return;
+    
+    $page = $_GET['page'];
+    $valid_pages = array('cfp-workshops', 'cfp-workshops-templates');
+    
+    if (!in_array($page, $valid_pages)) return;
+    
+    // Handle workshop materials generation
+    if ($page == 'cfp-workshops' && isset($_GET['action']) && $_GET['action'] == 'generate_materials' && isset($_GET['id'])) {
+        cfpew_generate_workshop_materials(intval($_GET['id']));
+        exit;
+    }
+    
+    // Handle template downloads  
+    if ($page == 'cfp-workshops-templates' && isset($_GET['action']) && $_GET['action'] == 'download_template' && isset($_GET['template_id'])) {
+        global $wpdb;
+        $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
+        $template_id = intval($_GET['template_id']);
+        $template = $wpdb->get_row($wpdb->prepare("SELECT * FROM $templates_table WHERE id = %d", $template_id));
+        
+        if ($template && file_exists($template->file_path)) {
+            cfpew_download_template_file($template->file_path, $template->original_filename);
+        } else {
+            wp_die('Template file not found');
+        }
+    }
+}
+
 // Add admin menu
 add_action('admin_menu', 'cfpew_admin_menu');
 function cfpew_admin_menu() {
@@ -208,16 +240,12 @@ function cfpew_workshops_page() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'cfp_workshops';
     
+    // Note: Generate materials action is now handled early in admin_init hook
+    
     // Handle delete action
     if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
         $wpdb->delete($table_name, array('id' => intval($_GET['id'])));
         echo '<div class="notice notice-success"><p>Workshop deleted successfully!</p></div>';
-    }
-    
-    // Handle generate materials action
-    if (isset($_GET['action']) && $_GET['action'] == 'generate_materials' && isset($_GET['id'])) {
-        cfpew_generate_workshop_materials(intval($_GET['id']));
-        return;
     }
     
     // Pagination
@@ -1054,6 +1082,8 @@ function cfpew_templates_page() {
     global $wpdb;
     $templates_table = $wpdb->prefix . 'cfp_workshop_templates';
     
+    // Note: Template download action is now handled early in admin_init hook
+    
     // Debug information
     $debug_info = array();
     if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -1078,18 +1108,6 @@ function cfpew_templates_page() {
     // Handle template deletion
     if (isset($_GET['action']) && $_GET['action'] == 'delete_template' && isset($_GET['template_id'])) {
         cfpew_delete_template(intval($_GET['template_id']));
-    }
-    
-    // Handle template download
-    if (isset($_GET['action']) && $_GET['action'] == 'download_template' && isset($_GET['template_id'])) {
-        $template_id = intval($_GET['template_id']);
-        $template = $wpdb->get_row($wpdb->prepare("SELECT * FROM $templates_table WHERE id = %d", $template_id));
-        
-        if ($template && file_exists($template->file_path)) {
-            cfpew_download_template_file($template->file_path, $template->original_filename);
-        } else {
-            echo '<div class="notice notice-error"><p>Template file not found.</p></div>';
-        }
     }
     
     // Handle manual table creation
