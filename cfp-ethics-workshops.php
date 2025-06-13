@@ -1080,6 +1080,18 @@ function cfpew_templates_page() {
         cfpew_delete_template(intval($_GET['template_id']));
     }
     
+    // Handle template download
+    if (isset($_GET['action']) && $_GET['action'] == 'download_template' && isset($_GET['template_id'])) {
+        $template_id = intval($_GET['template_id']);
+        $template = $wpdb->get_row($wpdb->prepare("SELECT * FROM $templates_table WHERE id = %d", $template_id));
+        
+        if ($template && file_exists($template->file_path)) {
+            cfpew_download_template_file($template->file_path, $template->original_filename);
+        } else {
+            echo '<div class="notice notice-error"><p>Template file not found.</p></div>';
+        }
+    }
+    
     // Handle manual table creation
     if (isset($_GET['action']) && $_GET['action'] == 'create_tables' && isset($_GET['cfpew_nonce']) && wp_verify_nonce($_GET['cfpew_nonce'], 'cfpew_create_tables')) {
         cfpew_create_tables();
@@ -1752,6 +1764,26 @@ function cfpew_download_file($file_path, $download_name) {
     // Clean up - delete generated file after download
     unlink($file_path);
     
+    exit;
+}
+
+// Download template file (without deleting it)
+function cfpew_download_template_file($file_path, $download_name) {
+    if (!file_exists($file_path)) {
+        wp_die('Template file not found');
+    }
+    
+    // Set headers for download
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="' . $download_name . '"');
+    header('Content-Length: ' . filesize($file_path));
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Pragma: public');
+    
+    // Output file
+    readfile($file_path);
+    
+    // Don't delete template files - they should persist
     exit;
 }
 
