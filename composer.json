@@ -1,0 +1,16 @@
+{
+    "name": "cfp/ethics-workshops-manager",
+    "description": "WordPress plugin for managing CFP Ethics Workshops with template processing",
+    "type": "wordpress-plugin",
+    "require": {
+        "php": ">=7.4",
+        "phpoffice/phppresentation": "^1.0",
+        "tecnickcom/tcpdf": "^6.4",
+        "setasign/fpdi": "^2.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "CFP\\EthicsWorkshops\\": "src/"
+        }
+    }
+} 

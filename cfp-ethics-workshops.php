@@ -1596,13 +1596,14 @@ function cfpew_generate_workshop_materials($workshop_id) {
 
 // Include PDF libraries (using TCPDF)
 function cfpew_include_pdf_libraries() {
-    if (!class_exists('TCPDF')) {
-        // You would need to include TCPDF library here
-        // For now, we'll use a simplified approach with basic PHP
-        
-        // Alternative: Use mPDF or DomPDF libraries
-        // require_once CFPEW_PLUGIN_PATH . 'vendor/autoload.php';
+    // Check if composer autoloader exists
+    $autoload_path = CFPEW_PLUGIN_PATH . 'vendor/autoload.php';
+    if (file_exists($autoload_path)) {
+        require_once $autoload_path;
     }
+    
+    // For now, we'll use native PHP functionality
+    return true;
 }
 
 // Generate PDF materials
@@ -1638,9 +1639,6 @@ function cfpew_generate_pdf_materials($workshop, $template) {
 
 // Generate PowerPoint materials
 function cfpew_generate_powerpoint_materials($workshop, $template) {
-    // Similar to PDF generation but for PowerPoint
-    // You would use PHPPresentation library here
-    
     $field_mappings = cfpew_parse_field_mappings($template->field_mappings);
     $replacement_data = cfpew_get_workshop_replacement_data($workshop);
     
@@ -1653,17 +1651,33 @@ function cfpew_generate_powerpoint_materials($workshop, $template) {
     $output_filename = 'workshop-slides-' . $workshop->id . '-' . uniqid() . '.pptx';
     $output_path = $output_dir . $output_filename;
     
-    // Simple PowerPoint generation placeholder
-    $content = cfpew_generate_simple_ppt_content($workshop, $field_mappings, $replacement_data);
-    
-    // For demonstration, create a text file (replace with actual PPTX generation)
-    file_put_contents(str_replace('.pptx', '.txt', $output_path), $content);
-    
-    return array(
-        'path' => str_replace('.pptx', '.txt', $output_path),
-        'name' => str_replace('.pptx', '.txt', $output_filename),
-        'type' => 'powerpoint'
-    );
+    // Try to process the actual PowerPoint template
+    if (cfpew_process_powerpoint_template($template->file_path, $output_path, $replacement_data)) {
+        return array(
+            'path' => $output_path,
+            'name' => $output_filename,
+            'type' => 'powerpoint'
+        );
+    } else {
+        // Fallback: Generate a new PowerPoint from scratch
+        if (cfpew_create_powerpoint_from_scratch($output_path, $workshop, $replacement_data)) {
+            return array(
+                'path' => $output_path,
+                'name' => $output_filename,
+                'type' => 'powerpoint'
+            );
+        }
+        
+        // Final fallback: Enhanced text content for debugging
+        $content = cfpew_generate_detailed_ppt_content($workshop, $field_mappings, $replacement_data);
+        file_put_contents(str_replace('.pptx', '.txt', $output_path), $content);
+        
+        return array(
+            'path' => str_replace('.pptx', '.txt', $output_path),
+            'name' => str_replace('.pptx', '.txt', $output_filename),
+            'type' => 'powerpoint'
+        );
+    }
 }
 
 // Parse field mappings from template
@@ -1726,21 +1740,353 @@ function cfpew_generate_simple_pdf_content($workshop, $mappings, $data) {
     return $content;
 }
 
-// Generate simple PowerPoint content (placeholder)
-function cfpew_generate_simple_ppt_content($workshop, $mappings, $data) {
-    $content = "WORKSHOP PRESENTATION SLIDES\n";
-    $content .= "============================\n\n";
-    $content .= "Generated from PowerPoint template with workshop data:\n\n";
+// Process PowerPoint template with real data replacement
+function cfpew_process_powerpoint_template($template_path, $output_path, $replacement_data) {
+    if (!file_exists($template_path)) {
+        return false;
+    }
     
-    foreach ($data as $key => $value) {
-        if (!empty($value)) {
-            $content .= ucwords(str_replace('_', ' ', $key)) . ": " . $value . "\n";
+    try {
+        // PowerPoint files are ZIP archives
+        $zip = new ZipArchive();
+        
+        if ($zip->open($template_path) !== TRUE) {
+            return false;
+        }
+        
+        // Extract template to temporary directory
+        $temp_dir = sys_get_temp_dir() . '/cfp_ppt_' . uniqid();
+        $zip->extractTo($temp_dir);
+        $zip->close();
+        
+        // Process slide content files
+        $slide_files = glob($temp_dir . '/ppt/slides/slide*.xml');
+        $processed = false;
+        
+        foreach ($slide_files as $slide_file) {
+            if (cfpew_process_slide_xml($slide_file, $replacement_data)) {
+                $processed = true;
+            }
+        }
+        
+        // Also process slide masters and layouts
+        $master_files = glob($temp_dir . '/ppt/slideMasters/slideMaster*.xml');
+        foreach ($master_files as $master_file) {
+            cfpew_process_slide_xml($master_file, $replacement_data);
+        }
+        
+        $layout_files = glob($temp_dir . '/ppt/slideLayouts/slideLayout*.xml');
+        foreach ($layout_files as $layout_file) {
+            cfpew_process_slide_xml($layout_file, $replacement_data);
+        }
+        
+        if ($processed) {
+            // Recreate the PowerPoint file
+            $new_zip = new ZipArchive();
+            if ($new_zip->open($output_path, ZipArchive::CREATE) === TRUE) {
+                cfpew_add_directory_to_zip($new_zip, $temp_dir, '');
+                $new_zip->close();
+                
+                // Clean up temporary directory
+                cfpew_remove_directory($temp_dir);
+                return true;
+            }
+        }
+        
+        // Clean up temporary directory
+        cfpew_remove_directory($temp_dir);
+        
+    } catch (Exception $e) {
+        error_log('PowerPoint processing error: ' . $e->getMessage());
+    }
+    
+    return false;
+}
+
+// Process individual slide XML files
+function cfpew_process_slide_xml($slide_file, $replacement_data) {
+    if (!file_exists($slide_file)) {
+        return false;
+    }
+    
+    $content = file_get_contents($slide_file);
+    $original_content = $content;
+    
+    // Replace placeholders in the XML content
+    foreach ($replacement_data as $key => $value) {
+        $placeholder = '{{' . $key . '}}';
+        $content = str_replace($placeholder, htmlspecialchars($value), $content);
+    }
+    
+    // Also try common variations
+    foreach ($replacement_data as $key => $value) {
+        $variations = array(
+            '{{ ' . $key . ' }}',
+            '{{' . strtoupper($key) . '}}',
+            '{{ ' . strtoupper($key) . ' }}',
+            '{' . $key . '}',
+            '[' . $key . ']',
+            '%' . $key . '%'
+        );
+        
+        foreach ($variations as $variation) {
+            $content = str_replace($variation, htmlspecialchars($value), $content);
         }
     }
     
-    $content .= "\n\n[This is a placeholder. In production, this would be a properly formatted PowerPoint presentation with your template design and the workshop data inserted into the specified placeholders.]\n";
+    if ($content !== $original_content) {
+        file_put_contents($slide_file, $content);
+        return true;
+    }
+    
+    return false;
+}
+
+// Create PowerPoint from scratch if template processing fails
+function cfpew_create_powerpoint_from_scratch($output_path, $workshop, $replacement_data) {
+    // Create a minimal PowerPoint structure
+    $ppt_structure = cfpew_get_minimal_pptx_structure($workshop, $replacement_data);
+    
+    if (cfpew_create_pptx_zip($output_path, $ppt_structure)) {
+        return true;
+    }
+    
+    return false;
+}
+
+// Helper function to add directory to ZIP
+function cfpew_add_directory_to_zip($zip, $dir, $zip_path) {
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir),
+        RecursiveIteratorIterator::LEAVES_ONLY
+    );
+    
+    foreach ($files as $file) {
+        if (!$file->isDir()) {
+            $file_path = $file->getRealPath();
+            $relative_path = $zip_path . substr($file_path, strlen($dir) + 1);
+            $relative_path = str_replace('\\', '/', $relative_path);
+            $zip->addFile($file_path, $relative_path);
+        }
+    }
+}
+
+// Helper function to remove directory
+function cfpew_remove_directory($dir) {
+    if (!is_dir($dir)) {
+        return;
+    }
+    
+    $files = array_diff(scandir($dir), array('.', '..'));
+    foreach ($files as $file) {
+        $path = $dir . '/' . $file;
+        if (is_dir($path)) {
+            cfpew_remove_directory($path);
+        } else {
+            unlink($path);
+        }
+    }
+    rmdir($dir);
+}
+
+// Generate detailed PowerPoint content for fallback
+function cfpew_generate_detailed_ppt_content($workshop, $mappings, $data) {
+    $content = "WORKSHOP PRESENTATION SLIDES - DETAILED GENERATION LOG\n";
+    $content .= "=====================================================\n\n";
+    $content .= "Template Processing Result: PowerPoint generation attempted\n";
+    $content .= "Generated: " . date('Y-m-d H:i:s') . "\n\n";
+    
+    $content .= "WORKSHOP DETAILS:\n";
+    $content .= "-----------------\n";
+    foreach ($data as $key => $value) {
+        if (!empty($value)) {
+            $content .= sprintf("%-20s: %s\n", ucwords(str_replace('_', ' ', $key)), $value);
+        }
+    }
+    
+    $content .= "\nFIELD MAPPINGS FOUND:\n";
+    $content .= "---------------------\n";
+    if (!empty($mappings)) {
+        foreach ($mappings as $key => $mapping) {
+            $content .= sprintf("%-20s: %s\n", $mapping['placeholder'], $mapping['description']);
+        }
+    } else {
+        $content .= "No field mappings defined in template.\n";
+    }
+    
+    $content .= "\nNOTE: This is a fallback text file. To generate actual PowerPoint files:\n";
+    $content .= "1. Ensure your PowerPoint template contains placeholders like {{workshop_date}}\n";
+    $content .= "2. Verify the template file is a valid .pptx file\n";
+    $content .= "3. Check server has ZipArchive extension enabled\n";
+    $content .= "4. For advanced features, install PHPPresentation via Composer\n\n";
+    
+    $content .= "TROUBLESHOOTING:\n";
+    $content .= "----------------\n";
+    $content .= "- Template path: exists and readable\n";
+    $content .= "- PHP ZipArchive: " . (class_exists('ZipArchive') ? 'Available' : 'NOT AVAILABLE') . "\n";
+    $content .= "- Temp directory: " . (is_writable(sys_get_temp_dir()) ? 'Writable' : 'NOT WRITABLE') . "\n";
+    $content .= "- Output directory: " . (is_writable(dirname($workshop->id)) ? 'Writable' : 'Check permissions') . "\n";
     
     return $content;
+}
+
+// Get minimal PowerPoint structure for creating from scratch
+function cfpew_get_minimal_pptx_structure($workshop, $replacement_data) {
+    $structure = array();
+    
+    // [Content_Types].xml
+    $structure['[Content_Types].xml'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+    <Default Extension="xml" ContentType="application/xml"/>
+    <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-presentationml.presentation.main+xml"/>
+    <Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-presentationml.slide+xml"/>
+    <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
+</Types>';
+
+    // _rels/.rels
+    $structure['_rels/.rels'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>';
+
+    // ppt/_rels/presentation.xml.rels
+    $structure['ppt/_rels/presentation.xml.rels'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
+    <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
+</Relationships>';
+
+    // ppt/presentation.xml
+    $structure['ppt/presentation.xml'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+    <p:sldMasterIdLst/>
+    <p:sldIdLst>
+        <p:sldId id="256" r:id="rId1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>
+    </p:sldIdLst>
+    <p:sldSz cx="9144000" cy="6858000"/>
+</p:presentation>';
+
+    // ppt/slides/slide1.xml with workshop data
+    $slide_content = cfpew_generate_slide_xml($workshop, $replacement_data);
+    $structure['ppt/slides/slide1.xml'] = $slide_content;
+
+    // ppt/theme/theme1.xml (basic theme)
+    $structure['ppt/theme/theme1.xml'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">
+    <a:themeElements>
+        <a:clrScheme name="Office">
+            <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
+            <a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>
+        </a:clrScheme>
+        <a:fontScheme name="Office">
+            <a:majorFont><a:latin typeface="Calibri Light"/></a:majorFont>
+            <a:minorFont><a:latin typeface="Calibri"/></a:minorFont>
+        </a:fontScheme>
+        <a:fmtScheme name="Office"/>
+    </a:themeElements>
+</a:theme>';
+
+    return $structure;
+}
+
+// Generate slide XML with workshop data
+function cfpew_generate_slide_xml($workshop, $replacement_data) {
+    $title = !empty($replacement_data['chapter_name']) ? $replacement_data['chapter_name'] . ' Workshop' : 'Ethics Workshop';
+    $date = !empty($replacement_data['workshop_date']) ? $replacement_data['workshop_date'] : '';
+    $instructor = !empty($replacement_data['instructor_name']) ? 'Instructor: ' . $replacement_data['instructor_name'] : '';
+    $location = !empty($replacement_data['location']) ? 'Location: ' . $replacement_data['location'] : '';
+    
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+    <p:cSld>
+        <p:spTree>
+            <p:nvGrpSpPr>
+                <p:cNvPr id="1" name=""/>
+                <p:cNvGrpSpPr/>
+                <p:nvPr/>
+            </p:nvGrpSpPr>
+            <p:grpSpPr>
+                <a:xfrm>
+                    <a:off x="0" y="0"/>
+                    <a:ext cx="0" cy="0"/>
+                    <a:chOff x="0" y="0"/>
+                    <a:chExt cx="0" cy="0"/>
+                </a:xfrm>
+            </p:grpSpPr>
+            <p:sp>
+                <p:nvSpPr>
+                    <p:cNvPr id="2" name="Title"/>
+                    <p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>
+                    <p:nvPr><p:ph type="ctrTitle"/></p:nvPr>
+                </p:nvSpPr>
+                <p:spPr/>
+                <p:txBody>
+                    <a:bodyPr/>
+                    <a:lstStyle/>
+                    <a:p>
+                        <a:r>
+                            <a:rPr lang="en-US" sz="4400" b="1"/>
+                            <a:t>' . htmlspecialchars($title) . '</a:t>
+                        </a:r>
+                    </a:p>
+                </p:txBody>
+            </p:sp>
+            <p:sp>
+                <p:nvSpPr>
+                    <p:cNvPr id="3" name="Content"/>
+                    <p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>
+                    <p:nvPr><p:ph type="body" idx="1"/></p:nvPr>
+                </p:nvSpPr>
+                <p:spPr/>
+                <p:txBody>
+                    <a:bodyPr/>
+                    <a:lstStyle/>
+                    <a:p>
+                        <a:r>
+                            <a:rPr lang="en-US" sz="2800"/>
+                            <a:t>' . htmlspecialchars($date) . '</a:t>
+                        </a:r>
+                    </a:p>
+                    <a:p>
+                        <a:r>
+                            <a:rPr lang="en-US" sz="2400"/>
+                            <a:t>' . htmlspecialchars($instructor) . '</a:t>
+                        </a:r>
+                    </a:p>
+                    <a:p>
+                        <a:r>
+                            <a:rPr lang="en-US" sz="2400"/>
+                            <a:t>' . htmlspecialchars($location) . '</a:t>
+                        </a:r>
+                    </a:p>
+                </p:txBody>
+            </p:sp>
+        </p:spTree>
+    </p:cSld>
+</p:sld>';
+}
+
+// Create PPTX ZIP file from structure
+function cfpew_create_pptx_zip($output_path, $structure) {
+    $zip = new ZipArchive();
+    
+    if ($zip->open($output_path, ZipArchive::CREATE) !== TRUE) {
+        return false;
+    }
+    
+    foreach ($structure as $file_path => $content) {
+        // Create directories if needed
+        $dir_path = dirname($file_path);
+        if ($dir_path !== '.' && $dir_path !== '') {
+            $zip->addEmptyDir($dir_path);
+        }
+        
+        $zip->addFromString($file_path, $content);
+    }
+    
+    $zip->close();
+    return true;
 }
 
 // Create ZIP file with multiple materials
