@@ -2578,6 +2578,7 @@ function cfpew_signin_shortcode($atts) {
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <input type="hidden" name="action" value="cfp_signin_submit">
             <?php wp_nonce_field('cfp_signin_nonce', 'cfp_signin_nonce'); ?>
+            <?php wp_nonce_field('cfp_workshop_nonce', 'cfp_workshop_nonce'); ?>
             <div class="cfp-form-row">
                 <div class="cfp-form-field">
                     <label for="first_name">First Name <span class="required">*</span></label>
@@ -2601,18 +2602,18 @@ function cfpew_signin_shortcode($atts) {
             </div>
             
             <div class="cfp-form-field">
-                <label for="affiliation">Affiliation <span class="required">*</span></label>
-                <select name="affiliation" id="affiliation" required>
-                    <option value="">-- Select FPA Chapter --</option>
-                    <?php foreach ($chapters as $chapter): ?>
-                        <option value="<?php echo esc_attr($chapter); ?>"><?php echo esc_html($chapter); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            
-            <div class="cfp-form-field">
                 <label for="workshop_date">Date of Workshop <span class="required">*</span></label>
                 <input type="date" name="workshop_date" id="workshop_date" required>
+            </div>
+            
+            <div class="cfp-form-field" id="affiliation-field" style="display: none;">
+                <label for="affiliation">Select Workshop <span class="required">*</span></label>
+                <select name="affiliation" id="affiliation" required>
+                    <option value="">-- Select Workshop --</option>
+                </select>
+                <div class="cfp-loading" id="affiliation-loading" style="display: none;">
+                    Loading workshops for selected date...
+                </div>
             </div>
             
             <h3>Program Evaluation</h3>
@@ -2808,6 +2809,12 @@ function cfpew_signin_shortcode($atts) {
         .cfp-submit .button:hover {
             background: #45a049;
         }
+        .cfp-loading {
+            font-style: italic;
+            color: #666;
+            margin-top: 5px;
+            font-size: 14px;
+        }
         </style>
         
         <script>
@@ -2825,6 +2832,74 @@ function cfpew_signin_shortcode($atts) {
                 });
             } else {
                 console.log('CFP Workshop: ERROR - Form not found!');
+            }
+            
+            // Handle workshop date selection
+            const workshopDateInput = document.getElementById('workshop_date');
+            const affiliationField = document.getElementById('affiliation-field');
+            const affiliationSelect = document.getElementById('affiliation');
+            const affiliationLoading = document.getElementById('affiliation-loading');
+            
+            if (workshopDateInput) {
+                workshopDateInput.addEventListener('change', function() {
+                    const selectedDate = this.value;
+                    console.log('CFP Workshop: Date selected:', selectedDate);
+                    
+                    if (selectedDate) {
+                        // Show loading
+                        affiliationLoading.style.display = 'block';
+                        affiliationField.style.display = 'block';
+                        
+                        // Clear existing options
+                        affiliationSelect.innerHTML = '<option value="">-- Loading workshops... --</option>';
+                        
+                        // Get nonce value
+                        const nonceField = document.querySelector('input[name="cfp_workshop_nonce"]');
+                        const nonce = nonceField ? nonceField.value : '';
+                        
+                        // Make AJAX request
+                        const formData = new FormData();
+                        formData.append('action', 'cfp_get_workshops_by_date');
+                        formData.append('date', selectedDate);
+                        formData.append('nonce', nonce);
+                        
+                        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            console.log('CFP Workshop: AJAX response:', data);
+                            affiliationLoading.style.display = 'none';
+                            
+                            if (data.success) {
+                                // Clear and populate options
+                                affiliationSelect.innerHTML = '<option value="">-- Select Workshop --</option>';
+                                
+                                data.data.forEach(function(workshop) {
+                                    const option = document.createElement('option');
+                                    option.value = workshop.value;
+                                    option.textContent = workshop.label;
+                                    affiliationSelect.appendChild(option);
+                                });
+                                
+                                console.log('CFP Workshop: Loaded', data.data.length, 'workshops for date');
+                            } else {
+                                affiliationSelect.innerHTML = '<option value="">No workshops found for this date</option>';
+                                console.log('CFP Workshop: No workshops found for date:', data.data);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('CFP Workshop: AJAX error:', error);
+                            affiliationLoading.style.display = 'none';
+                            affiliationSelect.innerHTML = '<option value="">Error loading workshops</option>';
+                        });
+                    } else {
+                        // Hide affiliation field if no date selected
+                        affiliationField.style.display = 'none';
+                        affiliationSelect.innerHTML = '<option value="">-- Select Workshop --</option>';
+                    }
+                });
             }
             
             // Handle star ratings
@@ -3407,6 +3482,56 @@ function cfpew_test_endpoint() {
     error_log('CFP Workshop: Test endpoint called successfully');
     echo 'CFP Workshop Plugin is working! Time: ' . current_time('Y-m-d H:i:s');
     wp_die();
+}
+
+// AJAX endpoint to get workshops for a specific date
+add_action('wp_ajax_cfp_get_workshops_by_date', 'cfpew_get_workshops_by_date');
+add_action('wp_ajax_nopriv_cfp_get_workshops_by_date', 'cfpew_get_workshops_by_date');
+function cfpew_get_workshops_by_date() {
+    global $wpdb;
+    $workshops_table = $wpdb->prefix . 'cfp_workshops';
+    
+    // Verify nonce for security
+    if (!wp_verify_nonce($_POST['nonce'], 'cfp_workshop_nonce')) {
+        wp_die('Security check failed');
+    }
+    
+    $date = sanitize_text_field($_POST['date']);
+    
+    if (empty($date)) {
+        wp_send_json_error('Date is required');
+    }
+    
+    // Get workshops for the specified date
+    $workshops = $wpdb->get_results($wpdb->prepare(
+        "SELECT id, customer, instructor, time_location 
+        FROM $workshops_table 
+        WHERE seminar_date = %s 
+        ORDER BY customer ASC",
+        $date
+    ));
+    
+    if (empty($workshops)) {
+        wp_send_json_error('No workshops found for this date');
+    }
+    
+    $workshop_options = array();
+    foreach ($workshops as $workshop) {
+        $label = $workshop->customer;
+        if ($workshop->instructor) {
+            $label .= ' (Instructor: ' . $workshop->instructor . ')';
+        }
+        if ($workshop->time_location) {
+            $label .= ' - ' . $workshop->time_location;
+        }
+        
+        $workshop_options[] = array(
+            'value' => $workshop->customer,
+            'label' => $label
+        );
+    }
+    
+    wp_send_json_success($workshop_options);
 }
 
 // Debug function to check sign-ins (temporary)
