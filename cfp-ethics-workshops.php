@@ -2571,7 +2571,9 @@ function cfpew_signin_shortcode($atts) {
             </div>
         <?php endif; ?>
         
-        <form method="post" action="">
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <input type="hidden" name="action" value="cfp_signin_submit">
+            <?php wp_nonce_field('cfp_signin_nonce', 'cfp_signin_nonce'); ?>
             <div class="cfp-form-row">
                 <div class="cfp-form-field">
                     <label for="first_name">First Name <span class="required">*</span></label>
@@ -3225,6 +3227,10 @@ function cfpew_dashboard_shortcode($atts) {
     return ob_get_clean();
 }
 
+// Register admin-post actions for sign-in form
+add_action('admin_post_cfp_signin_submit', 'cfpew_process_signin');
+add_action('admin_post_nopriv_cfp_signin_submit', 'cfpew_process_signin');
+
 // Process public sign-in form submission
 function cfpew_process_signin() {
     global $wpdb;
@@ -3233,6 +3239,12 @@ function cfpew_process_signin() {
     
     // Enable debug logging for troubleshooting
     error_log('CFP Workshop Sign-in: Form submitted with data: ' . print_r($_POST, true));
+    
+    // Verify nonce for security
+    if (!wp_verify_nonce($_POST['cfp_signin_nonce'], 'cfp_signin_nonce')) {
+        error_log('CFP Workshop Sign-in: ERROR - Nonce verification failed');
+        wp_die('Security check failed');
+    }
     
     try {
         // Find the workshop based on date and affiliation
@@ -3314,7 +3326,8 @@ function cfpew_process_signin() {
         
         if ($existing) {
             error_log("CFP Workshop Sign-in: Duplicate sign-in attempt for email $email in workshop $workshop_id");
-            wp_redirect(add_query_arg('signin_success', '1', $_SERVER['REQUEST_URI']));
+            $redirect_url = wp_get_referer() ? wp_get_referer() : home_url();
+            wp_redirect(add_query_arg('signin_success', '1', $redirect_url));
             exit;
         }
         
@@ -3353,7 +3366,8 @@ function cfpew_process_signin() {
         error_log("CFP Workshop Sign-in: Successfully created sign-in record with ID: $signin_id");
         
         // Redirect to prevent form resubmission
-        wp_redirect(add_query_arg('signin_success', '1', $_SERVER['REQUEST_URI']));
+        $redirect_url = wp_get_referer() ? wp_get_referer() : home_url();
+        wp_redirect(add_query_arg('signin_success', '1', $redirect_url));
         exit;
         
     } catch (Exception $e) {
