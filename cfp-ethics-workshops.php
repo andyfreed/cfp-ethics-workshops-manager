@@ -1074,6 +1074,43 @@ function cfpew_import_csv($file_path) {
 }
 
 // =============================================================================
+// DEBUG HELPER FUNCTIONS
+// =============================================================================
+
+// Add admin notice to show debug log location
+function cfpew_show_debug_info() {
+    if (current_user_can('manage_options')) {
+        $debug_enabled = defined('WP_DEBUG') && WP_DEBUG;
+        $debug_log_enabled = defined('WP_DEBUG_LOG') && WP_DEBUG_LOG;
+        
+        if (isset($_GET['cfp_debug_test'])) {
+            error_log('CFP WORKSHOP DEBUG TEST - This is a test message from WordPress admin');
+            echo '<div class="notice notice-success"><p><strong>CFP Workshop Debug Test:</strong> A test message has been sent to the error log. Check your debug log for: "CFP WORKSHOP DEBUG TEST"</p></div>';
+        }
+        
+        echo '<div class="notice notice-info"><p>';
+        echo '<strong>CFP Workshop Debug Status:</strong><br>';
+        echo 'WP_DEBUG: ' . ($debug_enabled ? 'ENABLED' : 'DISABLED') . '<br>';
+        echo 'WP_DEBUG_LOG: ' . ($debug_log_enabled ? 'ENABLED' : 'DISABLED') . '<br>';
+        
+        if ($debug_log_enabled) {
+            $upload_dir = wp_upload_dir();
+            echo 'Expected debug log location: ' . WP_CONTENT_DIR . '/debug.log<br>';
+        }
+        
+        echo '<a href="' . add_query_arg('cfp_debug_test', '1') . '" class="button">Send Test Debug Message</a>';
+        echo '</p></div>';
+    }
+}
+
+// Show debug info on plugin pages
+add_action('admin_notices', function() {
+    if (isset($_GET['page']) && strpos($_GET['page'], 'cfp-workshops') !== false) {
+        cfpew_show_debug_info();
+    }
+});
+
+// =============================================================================
 // WORKSHOP MATERIALS GENERATION SYSTEM
 // =============================================================================
 
@@ -1641,6 +1678,8 @@ function cfpew_generate_pdf_materials($workshop, $template) {
 function cfpew_generate_powerpoint_materials($workshop, $template) {
     // DEBUG: Test logging first
     error_log('=== CFP WORKSHOP DEBUG TEST - PowerPoint Generation Started ===');
+    error_log('Debug log location test - Current time: ' . current_time('mysql'));
+    error_log('WordPress debug log path: ' . (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG ? 'ENABLED' : 'DISABLED'));
     
     $field_mappings = cfpew_parse_field_mappings($template->field_mappings);
     $replacement_data = cfpew_get_workshop_replacement_data($workshop);
