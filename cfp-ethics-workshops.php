@@ -1642,6 +1642,14 @@ function cfpew_generate_powerpoint_materials($workshop, $template) {
     $field_mappings = cfpew_parse_field_mappings($template->field_mappings);
     $replacement_data = cfpew_get_workshop_replacement_data($workshop);
     
+    // DEBUG: Log the workshop data and replacement data for troubleshooting
+    error_log('PowerPoint Generation - Workshop ID: ' . $workshop->id);
+    error_log('PowerPoint Generation - Workshop customer: ' . $workshop->customer);
+    error_log('PowerPoint Generation - Workshop seminar_date: ' . $workshop->seminar_date);
+    error_log('PowerPoint Generation - Workshop instructor: ' . $workshop->instructor);
+    error_log('PowerPoint Generation - Replacement data: ' . print_r($replacement_data, true));
+    error_log('PowerPoint Generation - Field mappings: ' . print_r($field_mappings, true));
+    
     $upload_dir = wp_upload_dir();
     $output_dir = $upload_dir['basedir'] . '/cfp-generated-materials/';
     if (!file_exists($output_dir)) {
@@ -1808,16 +1816,48 @@ function cfpew_process_slide_xml($slide_file, $replacement_data) {
     if (!file_exists($slide_file)) {
         return false;
     }
-    
+
     $content = file_get_contents($slide_file);
     $original_content = $content;
+    
+    // DEBUG: Log replacement data for troubleshooting
+    error_log('PowerPoint Processing - Available replacement data: ' . print_r($replacement_data, true));
+    error_log('PowerPoint Processing - Processing file: ' . $slide_file);
+    
+    // DEBUG: Log what placeholders are actually in the file
+    preg_match_all('/\{\{[^}]+\}\}/', $content, $found_placeholders);
+    if (!empty($found_placeholders[0])) {
+        error_log('PowerPoint Processing - Placeholders found in file: ' . implode(', ', array_unique($found_placeholders[0])));
+    } else {
+        error_log('PowerPoint Processing - No {{placeholder}} patterns found in file');
+    }
+    
+    // Also check for other common patterns
+    preg_match_all('/\{[^}]+\}/', $content, $single_brace);
+    preg_match_all('/\[[^\]]+\]/', $content, $square_brackets);
+    preg_match_all('/%[^%]+%/', $content, $percent_signs);
+    
+    if (!empty($single_brace[0])) {
+        error_log('PowerPoint Processing - Single brace patterns found: ' . implode(', ', array_unique($single_brace[0])));
+    }
+    if (!empty($square_brackets[0])) {
+        error_log('PowerPoint Processing - Square bracket patterns found: ' . implode(', ', array_unique($square_brackets[0])));
+    }
+    if (!empty($percent_signs[0])) {
+        error_log('PowerPoint Processing - Percent sign patterns found: ' . implode(', ', array_unique($percent_signs[0])));
+    }
+    
+    $replacements_made = array();
     
     // Replace placeholders in the XML content
     foreach ($replacement_data as $key => $value) {
         $placeholder = '{{' . $key . '}}';
-        $content = str_replace($placeholder, htmlspecialchars($value), $content);
+        if (strpos($content, $placeholder) !== false) {
+            $content = str_replace($placeholder, htmlspecialchars($value), $content);
+            $replacements_made[] = $placeholder . ' -> ' . $value;
+        }
     }
-    
+
     // Also try common variations
     foreach ($replacement_data as $key => $value) {
         $variations = array(
@@ -1830,15 +1870,25 @@ function cfpew_process_slide_xml($slide_file, $replacement_data) {
         );
         
         foreach ($variations as $variation) {
-            $content = str_replace($variation, htmlspecialchars($value), $content);
+            if (strpos($content, $variation) !== false) {
+                $content = str_replace($variation, htmlspecialchars($value), $content);
+                $replacements_made[] = $variation . ' -> ' . $value;
+            }
         }
     }
     
+    // DEBUG: Log what replacements were made
+    if (!empty($replacements_made)) {
+        error_log('PowerPoint Processing - Replacements made: ' . implode(', ', $replacements_made));
+    } else {
+        error_log('PowerPoint Processing - No replacements made in file: ' . $slide_file);
+    }
+
     if ($content !== $original_content) {
         file_put_contents($slide_file, $content);
         return true;
     }
-    
+
     return false;
 }
 
