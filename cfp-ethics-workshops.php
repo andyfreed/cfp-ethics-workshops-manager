@@ -2546,9 +2546,13 @@ function cfpew_dashboard_page() {
 
 // Shortcode for public sign-in form
 add_shortcode('cfp_workshop_signin', 'cfpew_signin_shortcode');
+add_shortcode('cfp_signin', 'cfpew_signin_shortcode'); // Alias for easier use
 
 // Shortcode for workshop dashboard (commented out - using admin dashboard instead)
 // add_shortcode('cfp_workshop_dashboard', 'cfpew_dashboard_shortcode');
+
+// Debug: Log when shortcodes are registered
+error_log('CFP Workshop: Shortcodes registered - cfp_workshop_signin and cfp_signin');
 function cfpew_signin_shortcode($atts) {
     global $wpdb;
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
