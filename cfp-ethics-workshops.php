@@ -2422,6 +2422,7 @@ function cfpew_signin_shortcode($atts) {
                     star.addEventListener('click', function() {
                         const value = index + 1;
                         input.value = value;
+                        console.log('Set ' + field + ' rating to: ' + value); // Debug log
                         
                         // Update visual state
                         stars.forEach(function(s, i) {
@@ -2453,6 +2454,40 @@ function cfpew_signin_shortcode($atts) {
                     });
                 });
             });
+            
+            // Add form validation
+            const form = document.querySelector('.cfp-workshop-signin-form form');
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    console.log('Form submitted'); // Debug log
+                    
+                    // Check if all required ratings are filled
+                    const requiredRatings = [
+                        'learning_objectives_rating',
+                        'content_organized_rating',
+                        'content_relevant_rating', 
+                        'activities_helpful_rating',
+                        'instructor_knowledgeable_rating',
+                        'overall_rating'
+                    ];
+                    
+                    let missingRatings = [];
+                    requiredRatings.forEach(function(ratingName) {
+                        const input = document.getElementById(ratingName);
+                        if (!input.value || parseInt(input.value) < 1) {
+                            missingRatings.push(ratingName.replace('_rating', '').replace('_', ' '));
+                        }
+                    });
+                    
+                    if (missingRatings.length > 0) {
+                        e.preventDefault();
+                        alert('Please provide ratings for all questions: ' + missingRatings.join(', '));
+                        return false;
+                    }
+                    
+                    console.log('All validations passed'); // Debug log
+                });
+            }
         });
         </script>
     </div>
@@ -2800,54 +2835,93 @@ function cfpew_process_signin() {
     $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
     
-    // Debug mode - uncomment to see what's being submitted
-    // error_log('Sign-in form submitted with data: ' . print_r($_POST, true));
+    // Enable debug logging for troubleshooting
+    error_log('CFP Workshop Sign-in: Form submitted with data: ' . print_r($_POST, true));
     
-    // Find the workshop based on date and affiliation
-    $workshop_date = sanitize_text_field($_POST['workshop_date']);
-    $affiliation = sanitize_text_field($_POST['affiliation']);
-    
-    $workshop = $wpdb->get_row($wpdb->prepare(
-        "SELECT id FROM $workshops_table 
-        WHERE seminar_date = %s AND customer = %s",
-        $workshop_date, $affiliation
-    ));
-    
-    if (!$workshop) {
-        // Create a placeholder workshop if not found
-        $wpdb->insert($workshops_table, array(
-            'seminar_date' => $workshop_date,
-            'customer' => $affiliation,
-            'instructor' => 'TBD - Auto-created',
-            'notes' => 'Auto-created from sign-in form submission',
-            'created_at' => current_time('mysql')
-        ));
-        $workshop_id = $wpdb->insert_id;
+    try {
+        // Find the workshop based on date and affiliation
+        $workshop_date = sanitize_text_field($_POST['workshop_date']);
+        $affiliation = sanitize_text_field($_POST['affiliation']);
         
-        // Log the creation
-        error_log("Created new workshop with ID: $workshop_id for $affiliation on $workshop_date");
-    } else {
-        $workshop_id = $workshop->id;
-    }
-    
-    // Validate required fields
-    $first_name = sanitize_text_field($_POST['first_name']);
-    $last_name = sanitize_text_field($_POST['last_name']);
-    $email = sanitize_email($_POST['email']);
-    $cfp_id = sanitize_text_field($_POST['cfp_id']);
-    
-    if (empty($first_name) || empty($last_name) || empty($email) || empty($cfp_id)) {
-        wp_die('Missing required fields. Please go back and complete all required fields.');
-    }
-    
-    // Check for duplicate sign-in
-    $existing = $wpdb->get_var($wpdb->prepare(
-        "SELECT id FROM $signins_table 
-        WHERE workshop_id = %d AND email = %s",
-        $workshop_id, $email
-    ));
-    
-    if (!$existing) {
+        error_log("CFP Workshop Sign-in: Looking for workshop on $workshop_date for $affiliation");
+        
+        $workshop = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $workshops_table 
+            WHERE seminar_date = %s AND customer = %s",
+            $workshop_date, $affiliation
+        ));
+        
+        if (!$workshop) {
+            error_log("CFP Workshop Sign-in: No existing workshop found, creating new one");
+            
+            // Create a placeholder workshop if not found
+            $insert_result = $wpdb->insert($workshops_table, array(
+                'seminar_date' => $workshop_date,
+                'customer' => $affiliation,
+                'instructor' => 'TBD - Auto-created',
+                'notes' => 'Auto-created from sign-in form submission',
+                'created_at' => current_time('mysql')
+            ));
+            
+            if ($insert_result === false) {
+                error_log('CFP Workshop Sign-in: Failed to create workshop: ' . $wpdb->last_error);
+                wp_die('Error creating workshop record. Please contact support. Error: ' . $wpdb->last_error);
+            }
+            
+            $workshop_id = $wpdb->insert_id;
+            error_log("CFP Workshop Sign-in: Created new workshop with ID: $workshop_id");
+        } else {
+            $workshop_id = $workshop->id;
+            error_log("CFP Workshop Sign-in: Found existing workshop with ID: $workshop_id");
+        }
+        
+        // Validate required fields
+        $first_name = sanitize_text_field($_POST['first_name']);
+        $last_name = sanitize_text_field($_POST['last_name']);
+        $email = sanitize_email($_POST['email']);
+        $cfp_id = sanitize_text_field($_POST['cfp_id']);
+        
+        // Check required ratings
+        $required_ratings = array(
+            'learning_objectives_rating',
+            'content_organized_rating', 
+            'content_relevant_rating',
+            'activities_helpful_rating',
+            'instructor_knowledgeable_rating',
+            'overall_rating'
+        );
+        
+        $missing_fields = array();
+        if (empty($first_name)) $missing_fields[] = 'First Name';
+        if (empty($last_name)) $missing_fields[] = 'Last Name';
+        if (empty($email)) $missing_fields[] = 'Email';
+        if (empty($cfp_id)) $missing_fields[] = 'CFP ID';
+        
+        foreach ($required_ratings as $rating_field) {
+            if (empty($_POST[$rating_field]) || intval($_POST[$rating_field]) < 1) {
+                $missing_fields[] = ucwords(str_replace('_', ' ', str_replace('_rating', '', $rating_field))) . ' Rating';
+            }
+        }
+        
+        if (!empty($missing_fields)) {
+            $error_msg = 'Missing required fields: ' . implode(', ', $missing_fields) . '. Please go back and complete all required fields.';
+            error_log('CFP Workshop Sign-in: Validation failed - ' . $error_msg);
+            wp_die($error_msg);
+        }
+        
+        // Check for duplicate sign-in
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $signins_table 
+            WHERE workshop_id = %d AND email = %s",
+            $workshop_id, $email
+        ));
+        
+        if ($existing) {
+            error_log("CFP Workshop Sign-in: Duplicate sign-in attempt for email $email in workshop $workshop_id");
+            wp_redirect(add_query_arg('signin_success', '1', $_SERVER['REQUEST_URI']));
+            exit;
+        }
+        
         // Prepare sign-in data
         $signin_data = array(
             'workshop_id' => $workshop_id,
@@ -2857,30 +2931,97 @@ function cfpew_process_signin() {
             'cfp_id' => $cfp_id,
             'affiliation' => $affiliation,
             'workshop_date' => $workshop_date,
-            'learning_objectives_rating' => !empty($_POST['learning_objectives_rating']) ? intval($_POST['learning_objectives_rating']) : 0,
-            'content_organized_rating' => !empty($_POST['content_organized_rating']) ? intval($_POST['content_organized_rating']) : 0,
-            'content_relevant_rating' => !empty($_POST['content_relevant_rating']) ? intval($_POST['content_relevant_rating']) : 0,
-            'activities_helpful_rating' => !empty($_POST['activities_helpful_rating']) ? intval($_POST['activities_helpful_rating']) : 0,
-            'instructor_knowledgeable_rating' => !empty($_POST['instructor_knowledgeable_rating']) ? intval($_POST['instructor_knowledgeable_rating']) : 0,
-            'overall_rating' => !empty($_POST['overall_rating']) ? intval($_POST['overall_rating']) : 0,
+            'learning_objectives_rating' => intval($_POST['learning_objectives_rating']),
+            'content_organized_rating' => intval($_POST['content_organized_rating']),
+            'content_relevant_rating' => intval($_POST['content_relevant_rating']),
+            'activities_helpful_rating' => intval($_POST['activities_helpful_rating']),
+            'instructor_knowledgeable_rating' => intval($_POST['instructor_knowledgeable_rating']),
+            'overall_rating' => intval($_POST['overall_rating']),
             'email_newsletter' => isset($_POST['email_newsletter']) ? 1 : 0,
-            'ip_address' => $_SERVER['REMOTE_ADDR'],
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'Unknown',
             'completion_date' => current_time('mysql')
         );
+        
+        error_log('CFP Workshop Sign-in: Attempting to insert sign-in data: ' . print_r($signin_data, true));
         
         // Insert sign-in record
         $result = $wpdb->insert($signins_table, $signin_data);
         
         if ($result === false) {
-            // Log database error
-            error_log('Failed to insert sign-in: ' . $wpdb->last_error);
-            wp_die('There was an error saving your sign-in. Please try again or contact support.');
+            $error_msg = 'Failed to insert sign-in: ' . $wpdb->last_error;
+            error_log('CFP Workshop Sign-in: ' . $error_msg);
+            wp_die('There was an error saving your sign-in. Please try again or contact support. Error: ' . $wpdb->last_error);
         }
+        
+        $signin_id = $wpdb->insert_id;
+        error_log("CFP Workshop Sign-in: Successfully created sign-in record with ID: $signin_id");
+        
+        // Redirect to prevent form resubmission
+        wp_redirect(add_query_arg('signin_success', '1', $_SERVER['REQUEST_URI']));
+        exit;
+        
+    } catch (Exception $e) {
+        error_log('CFP Workshop Sign-in: Exception occurred - ' . $e->getMessage());
+        wp_die('An unexpected error occurred during sign-in. Please try again or contact support. Error: ' . $e->getMessage());
+    }
+}
+
+// Debug function to check sign-ins (temporary)
+add_action('wp_ajax_cfp_debug_signins', 'cfpew_debug_signins');
+add_action('wp_ajax_nopriv_cfp_debug_signins', 'cfpew_debug_signins');
+function cfpew_debug_signins() {
+    if (!current_user_can('manage_options')) {
+        wp_die('Access denied');
     }
     
-    // Redirect to prevent form resubmission
-    wp_redirect(add_query_arg('signin_success', '1', $_SERVER['REQUEST_URI']));
-    exit;
+    global $wpdb;
+    $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+    $workshops_table = $wpdb->prefix . 'cfp_workshops';
+    
+    echo "<h3>Recent Sign-ins (Last 10)</h3>";
+    $signins = $wpdb->get_results("SELECT s.*, w.customer, w.seminar_date 
+                                  FROM $signins_table s 
+                                  LEFT JOIN $workshops_table w ON s.workshop_id = w.id 
+                                  ORDER BY s.completion_date DESC LIMIT 10");
+    
+    if ($signins) {
+        echo "<table border='1'>";
+        echo "<tr><th>ID</th><th>Name</th><th>Email</th><th>Workshop</th><th>Date</th><th>Completion</th></tr>";
+        foreach ($signins as $signin) {
+            echo "<tr>";
+            echo "<td>{$signin->id}</td>";
+            echo "<td>{$signin->first_name} {$signin->last_name}</td>";
+            echo "<td>{$signin->email}</td>";
+            echo "<td>{$signin->customer}</td>";
+            echo "<td>{$signin->seminar_date}</td>";
+            echo "<td>{$signin->completion_date}</td>";
+            echo "</tr>";
+        }
+        echo "</table>";
+    } else {
+        echo "<p>No sign-ins found.</p>";
+    }
+    
+    echo "<h3>Recent Workshops (Last 10)</h3>";
+    $workshops = $wpdb->get_results("SELECT * FROM $workshops_table ORDER BY seminar_date DESC LIMIT 10");
+    
+    if ($workshops) {
+        echo "<table border='1'>";
+        echo "<tr><th>ID</th><th>Date</th><th>Customer</th><th>Created</th></tr>";
+        foreach ($workshops as $workshop) {
+            echo "<tr>";
+            echo "<td>{$workshop->id}</td>";
+            echo "<td>{$workshop->seminar_date}</td>";
+            echo "<td>{$workshop->customer}</td>";
+            echo "<td>{$workshop->created_at}</td>";
+            echo "</tr>";
+        }
+        echo "</table>";
+    } else {
+        echo "<p>No workshops found.</p>";
+    }
+    
+    wp_die();
 }
 
 // Add admin notice for plugin activation
