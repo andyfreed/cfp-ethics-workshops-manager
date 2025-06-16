@@ -1639,6 +1639,9 @@ function cfpew_generate_pdf_materials($workshop, $template) {
 
 // Generate PowerPoint materials
 function cfpew_generate_powerpoint_materials($workshop, $template) {
+    // DEBUG: Test logging first
+    error_log('=== CFP WORKSHOP DEBUG TEST - PowerPoint Generation Started ===');
+    
     $field_mappings = cfpew_parse_field_mappings($template->field_mappings);
     $replacement_data = cfpew_get_workshop_replacement_data($workshop);
     
