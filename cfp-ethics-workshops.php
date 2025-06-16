@@ -2808,6 +2808,21 @@ function cfpew_signin_shortcode($atts) {
         
         <script>
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('CFP Workshop: Sign-in form JavaScript loaded');
+            
+            // Debug form submission
+            const form = document.querySelector('.cfp-workshop-signin-form form');
+            if (form) {
+                console.log('CFP Workshop: Form found, action URL:', form.action);
+                form.addEventListener('submit', function(e) {
+                    console.log('CFP Workshop: Form being submitted to:', form.action);
+                    console.log('CFP Workshop: Form method:', form.method);
+                    console.log('CFP Workshop: Form data:', new FormData(form));
+                });
+            } else {
+                console.log('CFP Workshop: ERROR - Form not found!');
+            }
+            
             // Handle star ratings
             const starRatings = document.querySelectorAll('.cfp-star-rating');
             
@@ -3231,6 +3246,9 @@ function cfpew_dashboard_shortcode($atts) {
 add_action('admin_post_cfp_signin_submit', 'cfpew_process_signin');
 add_action('admin_post_nopriv_cfp_signin_submit', 'cfpew_process_signin');
 
+// Debug: Log when actions are registered
+error_log('CFP Workshop: Admin-post actions registered for cfp_signin_submit');
+
 // Process public sign-in form submission
 function cfpew_process_signin() {
     global $wpdb;
@@ -3374,6 +3392,15 @@ function cfpew_process_signin() {
         error_log('CFP Workshop Sign-in: Exception occurred - ' . $e->getMessage());
         wp_die('An unexpected error occurred during sign-in. Please try again or contact support. Error: ' . $e->getMessage());
     }
+}
+
+// Test endpoint to verify plugin is working
+add_action('wp_ajax_cfp_test_endpoint', 'cfpew_test_endpoint');
+add_action('wp_ajax_nopriv_cfp_test_endpoint', 'cfpew_test_endpoint');
+function cfpew_test_endpoint() {
+    error_log('CFP Workshop: Test endpoint called successfully');
+    echo 'CFP Workshop Plugin is working! Time: ' . current_time('Y-m-d H:i:s');
+    wp_die();
 }
 
 // Debug function to check sign-ins (temporary)
