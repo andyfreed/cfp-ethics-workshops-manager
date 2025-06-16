@@ -2829,11 +2829,14 @@ function cfpew_signin_shortcode($atts) {
             
             // Handle star ratings
             const starRatings = document.querySelectorAll('.cfp-star-rating');
+            console.log('CFP Workshop: Found', starRatings.length, 'star rating elements');
             
             starRatings.forEach(function(rating) {
                 const stars = rating.querySelectorAll('.star');
                 const field = rating.dataset.field;
                 const input = document.getElementById(field + '_rating');
+                
+                console.log('CFP Workshop: Setting up rating for field:', field, 'Found', stars.length, 'stars, input element:', input);
                 
                 stars.forEach(function(star, index) {
                     star.addEventListener('click', function() {
@@ -2873,7 +2876,6 @@ function cfpew_signin_shortcode($atts) {
             });
             
             // Add form validation
-            const form = document.querySelector('.cfp-workshop-signin-form form');
             if (form) {
                 form.addEventListener('submit', function(e) {
                     console.log('Form submitted'); // Debug log
