@@ -3374,47 +3374,123 @@ function cfpew_debug_signins() {
     $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
     
-    echo "<h3>Recent Sign-ins (Last 10)</h3>";
-    $signins = $wpdb->get_results("SELECT s.*, w.customer, w.seminar_date 
-                                  FROM $signins_table s 
-                                  LEFT JOIN $workshops_table w ON s.workshop_id = w.id 
-                                  ORDER BY s.completion_date DESC LIMIT 10");
+    echo "<style>table { border-collapse: collapse; margin: 10px 0; } th, td { border: 1px solid #ddd; padding: 8px; text-align: left; } th { background: #f5f5f5; }</style>";
     
-    if ($signins) {
-        echo "<table border='1'>";
-        echo "<tr><th>ID</th><th>Name</th><th>Email</th><th>Workshop</th><th>Date</th><th>Completion</th></tr>";
-        foreach ($signins as $signin) {
-            echo "<tr>";
-            echo "<td>{$signin->id}</td>";
-            echo "<td>{$signin->first_name} {$signin->last_name}</td>";
-            echo "<td>{$signin->email}</td>";
-            echo "<td>{$signin->customer}</td>";
-            echo "<td>{$signin->seminar_date}</td>";
-            echo "<td>{$signin->completion_date}</td>";
-            echo "</tr>";
+    echo "<h2>CFP Workshop Database Debug</h2>";
+    echo "<p><strong>Generated:</strong> " . current_time('Y-m-d H:i:s') . "</p>";
+    
+    // Check if tables exist
+    echo "<h3>Database Tables Status</h3>";
+    $signins_exists = $wpdb->get_var("SHOW TABLES LIKE '$signins_table'") == $signins_table;
+    $workshops_exists = $wpdb->get_var("SHOW TABLES LIKE '$workshops_table'") == $workshops_table;
+    
+    echo "<ul>";
+    echo "<li>Sign-ins table ($signins_table): " . ($signins_exists ? "✅ EXISTS" : "❌ MISSING") . "</li>";
+    echo "<li>Workshops table ($workshops_table): " . ($workshops_exists ? "✅ EXISTS" : "❌ MISSING") . "</li>";
+    echo "</ul>";
+    
+    if (!$signins_exists || !$workshops_exists) {
+        echo "<p><strong>⚠️ Missing tables detected!</strong> <a href='" . admin_url('admin.php?page=cfp-workshops-templates&action=create_tables&cfpew_nonce=' . wp_create_nonce('cfpew_create_tables')) . "'>Click here to create missing tables</a></p>";
+    }
+    
+    // Show table structures
+    if ($signins_exists) {
+        echo "<h3>Sign-ins Table Structure</h3>";
+        $columns = $wpdb->get_results("DESCRIBE $signins_table");
+        if ($columns) {
+            echo "<table><tr><th>Column</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th></tr>";
+            foreach ($columns as $col) {
+                echo "<tr><td>{$col->Field}</td><td>{$col->Type}</td><td>{$col->Null}</td><td>{$col->Key}</td><td>{$col->Default}</td></tr>";
+            }
+            echo "</table>";
         }
-        echo "</table>";
+    }
+    
+    echo "<h3>Recent Sign-ins (Last 10)</h3>";
+    if ($signins_exists) {
+        $signins = $wpdb->get_results("SELECT s.*, w.customer, w.seminar_date 
+                                      FROM $signins_table s 
+                                      LEFT JOIN $workshops_table w ON s.workshop_id = w.id 
+                                      ORDER BY s.completion_date DESC LIMIT 10");
+        
+        if ($signins) {
+            echo "<table>";
+            echo "<tr><th>ID</th><th>Name</th><th>Email</th><th>CFP ID</th><th>Workshop</th><th>Workshop Date</th><th>Sign-in Date</th><th>Overall Rating</th></tr>";
+            foreach ($signins as $signin) {
+                echo "<tr>";
+                echo "<td>{$signin->id}</td>";
+                echo "<td>{$signin->first_name} {$signin->last_name}</td>";
+                echo "<td>{$signin->email}</td>";
+                echo "<td>{$signin->cfp_id}</td>";
+                echo "<td>{$signin->customer}</td>";
+                echo "<td>{$signin->seminar_date}</td>";
+                echo "<td>{$signin->completion_date}</td>";
+                echo "<td>" . ($signin->overall_rating ? str_repeat('⭐', $signin->overall_rating) : 'N/A') . "</td>";
+                echo "</tr>";
+            }
+            echo "</table>";
+        } else {
+            echo "<p>❌ No sign-ins found in database.</p>";
+            
+            // Check total count
+            $total_count = $wpdb->get_var("SELECT COUNT(*) FROM $signins_table");
+            echo "<p><strong>Total sign-ins in database:</strong> $total_count</p>";
+        }
     } else {
-        echo "<p>No sign-ins found.</p>";
+        echo "<p>❌ Sign-ins table does not exist.</p>";
     }
     
     echo "<h3>Recent Workshops (Last 10)</h3>";
-    $workshops = $wpdb->get_results("SELECT * FROM $workshops_table ORDER BY seminar_date DESC LIMIT 10");
-    
-    if ($workshops) {
-        echo "<table border='1'>";
-        echo "<tr><th>ID</th><th>Date</th><th>Customer</th><th>Created</th></tr>";
-        foreach ($workshops as $workshop) {
-            echo "<tr>";
-            echo "<td>{$workshop->id}</td>";
-            echo "<td>{$workshop->seminar_date}</td>";
-            echo "<td>{$workshop->customer}</td>";
-            echo "<td>{$workshop->created_at}</td>";
-            echo "</tr>";
+    if ($workshops_exists) {
+        $workshops = $wpdb->get_results("SELECT * FROM $workshops_table ORDER BY seminar_date DESC LIMIT 10");
+        
+        if ($workshops) {
+            echo "<table>";
+            echo "<tr><th>ID</th><th>Date</th><th>Customer</th><th>Instructor</th><th>Created</th><th>Notes</th></tr>";
+            foreach ($workshops as $workshop) {
+                echo "<tr>";
+                echo "<td>{$workshop->id}</td>";
+                echo "<td>{$workshop->seminar_date}</td>";
+                echo "<td>{$workshop->customer}</td>";
+                echo "<td>{$workshop->instructor}</td>";
+                echo "<td>{$workshop->created_at}</td>";
+                echo "<td>" . substr($workshop->notes, 0, 50) . (strlen($workshop->notes) > 50 ? '...' : '') . "</td>";
+                echo "</tr>";
+            }
+            echo "</table>";
+            
+            $total_workshops = $wpdb->get_var("SELECT COUNT(*) FROM $workshops_table");
+            echo "<p><strong>Total workshops in database:</strong> $total_workshops</p>";
+        } else {
+            echo "<p>❌ No workshops found in database.</p>";
         }
-        echo "</table>";
     } else {
-        echo "<p>No workshops found.</p>";
+        echo "<p>❌ Workshops table does not exist.</p>";
+    }
+    
+    // Show recent WordPress error log entries related to CFP
+    echo "<h3>Recent Error Log Entries</h3>";
+    $log_file = WP_CONTENT_DIR . '/debug.log';
+    if (file_exists($log_file)) {
+        $log_content = file_get_contents($log_file);
+        $lines = explode("\n", $log_content);
+        $cfp_lines = array_filter($lines, function($line) {
+            return strpos($line, 'CFP Workshop') !== false;
+        });
+        
+        if (!empty($cfp_lines)) {
+            $recent_entries = array_slice(array_reverse($cfp_lines), 0, 10);
+            echo "<pre style='background: #f5f5f5; padding: 10px; max-height: 300px; overflow-y: scroll;'>";
+            foreach ($recent_entries as $entry) {
+                echo esc_html($entry) . "\n";
+            }
+            echo "</pre>";
+        } else {
+            echo "<p>No CFP Workshop entries found in error log.</p>";
+        }
+    } else {
+        echo "<p>Debug log file not found at: $log_file</p>";
+        echo "<p>WordPress debug logging may not be enabled.</p>";
     }
     
     wp_die();
