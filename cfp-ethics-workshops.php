@@ -635,6 +635,9 @@ function cfpew_signins_page() {
                 <?php if ($workshop_id): ?>
                     <a href="?page=cfp-workshops-signins&action=export&workshop_id=<?php echo $workshop_id; ?>" 
                        class="button">Export Sign-ins to CSV</a>
+                <?php else: ?>
+                    <a href="?page=cfp-workshops-signins&action=export" 
+                       class="button">Export All Sign-ins to CSV</a>
                 <?php endif; ?>
             </form>
         </div>
@@ -808,7 +811,7 @@ function cfpew_add_signin_page() {
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="activities_helpful_rating">The activities incorporated in the program helped illustrate how the new Code and Standards would be applied</label></th>
+                    <th><label for="activities_helpful_rating">The activities incorporated in the program helped illustrate how the new Code and Standards would be applied <span class="required">*</span></label></th>
                     <td>
                         <select name="activities_helpful_rating" id="activities_helpful_rating">
                             <option value="0">Not Rated</option>
@@ -821,7 +824,7 @@ function cfpew_add_signin_page() {
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="instructor_knowledgeable_rating">The instructor was knowledgeable about the new Code and Standards</label></th>
+                    <th><label for="instructor_knowledgeable_rating">The instructor was knowledgeable about the new Code and Standards <span class="required">*</span></label></th>
                     <td>
                         <select name="instructor_knowledgeable_rating" id="instructor_knowledgeable_rating">
                             <option value="0">Not Rated</option>
@@ -834,7 +837,7 @@ function cfpew_add_signin_page() {
                     </td>
                 </tr>
                 <tr>
-                    <th><label for="overall_rating">How many stars would you give this program?</label></th>
+                    <th><label for="overall_rating">How many stars would you give this program? <span class="required">*</span></label></th>
                     <td>
                         <select name="overall_rating" id="overall_rating">
                             <option value="0">Not Rated</option>
@@ -866,45 +869,65 @@ function cfpew_add_signin_page() {
 }
 
 // Export sign-ins to CSV
-function cfpew_export_signins($workshop_id) {
+function cfpew_export_signins($workshop_id = null) {
     global $wpdb;
     $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
     
-    // Get workshop info
-    $workshop = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM $workshops_table WHERE id = %d", 
-        $workshop_id
-    ));
-    
-    if (!$workshop) {
-        wp_die('Workshop not found');
+    // Get workshop info if specific workshop
+    $workshop = null;
+    if ($workshop_id) {
+        $workshop = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $workshops_table WHERE id = %d", 
+            $workshop_id
+        ));
+        
+        if (!$workshop) {
+            wp_die('Workshop not found');
+        }
     }
     
-    // Get sign-ins
-    $signins = $wpdb->get_results($wpdb->prepare(
-        "SELECT * FROM $signins_table WHERE workshop_id = %d ORDER BY last_name, first_name",
-        $workshop_id
-    ));
+    // Get sign-ins with workshop info
+    $query = "SELECT s.*, w.seminar_date, w.customer, w.instructor, w.location, w.time_location 
+              FROM $signins_table s 
+              LEFT JOIN $workshops_table w ON s.workshop_id = w.id";
+    
+    if ($workshop_id) {
+        $query .= $wpdb->prepare(" WHERE s.workshop_id = %d", $workshop_id);
+    }
+    
+    $query .= " ORDER BY w.seminar_date DESC, s.last_name, s.first_name";
+    
+    $signins = $wpdb->get_results($query);
     
     // Set headers for CSV download
-    $filename = 'cfp-ethics-signins-' . $workshop->seminar_date . '-' . sanitize_title($workshop->customer) . '.csv';
+    $filename = $workshop_id 
+        ? 'cfp-ethics-signins-' . $workshop->seminar_date . '-' . sanitize_title($workshop->customer) . '.csv'
+        : 'cfp-ethics-signins-all-workshops-' . date('Y-m-d') . '.csv';
+    
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     
     // Output CSV
     $output = fopen('php://output', 'w');
     
-    // Add workshop info at top
-    fputcsv($output, array('CFP Ethics Workshop Sign-in Report'));
-    fputcsv($output, array('Workshop Date:', $workshop->seminar_date));
-    fputcsv($output, array('FPA Chapter:', $workshop->customer));
-    fputcsv($output, array('Instructor:', $workshop->instructor));
-    fputcsv($output, array('Total Attendees:', count($signins)));
-    fputcsv($output, array('')); // Empty row
+    if ($workshop_id) {
+        // Add workshop info at top for single workshop export
+        fputcsv($output, array('CFP Ethics Workshop Sign-in Report'));
+        fputcsv($output, array('Workshop Date:', $workshop->seminar_date));
+        fputcsv($output, array('FPA Chapter:', $workshop->customer));
+        fputcsv($output, array('Instructor:', $workshop->instructor));
+        fputcsv($output, array('Total Attendees:', count($signins)));
+        fputcsv($output, array('')); // Empty row
+    }
     
     // Column headers
-    fputcsv($output, array(
+    $headers = array(
+        'Workshop Date',
+        'FPA Chapter',
+        'Instructor',
+        'Location',
+        'Time/Location Details',
         'First Name', 
         'Last Name', 
         'Email', 
@@ -918,11 +941,18 @@ function cfpew_export_signins($workshop_id) {
         'Instructor Knowledgeable Rating',
         'Overall Rating',
         'Newsletter Signup'
-    ));
+    );
+    
+    fputcsv($output, $headers);
     
     // Data rows
     foreach ($signins as $signin) {
         fputcsv($output, array(
+            $signin->seminar_date,
+            $signin->customer,
+            $signin->instructor,
+            $signin->location,
+            $signin->time_location,
             $signin->first_name,
             $signin->last_name,
             $signin->email,
@@ -940,6 +970,7 @@ function cfpew_export_signins($workshop_id) {
     }
     
     fclose($output);
+    exit;
 }
 
 // Import page
