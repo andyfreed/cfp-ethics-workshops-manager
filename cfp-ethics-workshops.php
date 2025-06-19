@@ -133,13 +133,20 @@ function cfpew_handle_early_downloads() {
     if (!is_admin() || !isset($_GET['page'])) return;
     
     $page = $_GET['page'];
-    $valid_pages = array('cfp-workshops', 'cfp-workshops-templates');
+    $valid_pages = array('cfp-workshops', 'cfp-workshops-templates', 'cfp-workshops-signins');
     
     if (!in_array($page, $valid_pages)) return;
     
     // Handle workshop materials generation
     if ($page == 'cfp-workshops' && isset($_GET['action']) && $_GET['action'] == 'generate_materials' && isset($_GET['id'])) {
         cfpew_generate_workshop_materials(intval($_GET['id']));
+        exit;
+    }
+    
+    // Handle CSV export from sign-ins page
+    if ($page == 'cfp-workshops-signins' && isset($_GET['action']) && $_GET['action'] == 'export') {
+        $workshop_id = isset($_GET['workshop_id']) ? intval($_GET['workshop_id']) : null;
+        cfpew_export_signins($workshop_id);
         exit;
     }
     
@@ -579,12 +586,6 @@ function cfpew_signins_page() {
     global $wpdb;
     $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
-    
-    // Handle export action
-    if (isset($_GET['action']) && $_GET['action'] == 'export' && isset($_GET['workshop_id'])) {
-        cfpew_export_signins(intval($_GET['workshop_id']));
-        exit;
-    }
     
     // Handle delete action
     if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
