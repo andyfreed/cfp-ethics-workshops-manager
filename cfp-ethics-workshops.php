@@ -282,12 +282,12 @@ function cfpew_workshops_page() {
                     <td><?php echo esc_html($workshop->attendees_count); ?></td>
                     <td>
                         <?php
+                        $invoice_sent_flag = isset($workshop->invoice_sent_flag) ? $workshop->invoice_sent_flag : 0;
                         $invoice_sent = $workshop->invoice_sent;
-                        $invoice_unknown = isset($workshop->invoice_unknown) ? $workshop->invoice_unknown : 0;
-                        if ($invoice_sent) {
+                        if ($invoice_sent_flag && $invoice_sent) {
                             echo '<span style="color: green; font-weight: bold;">' . esc_html($invoice_sent) . '</span>';
-                        } elseif ($invoice_unknown) {
-                            echo '<span style="color: orange; font-weight: bold;">Date Unknown</span>';
+                        } elseif ($invoice_sent_flag) {
+                            echo '<span style="color: orange; font-weight: bold;">Sent (no date)</span>';
                         } else {
                             echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
                         }
@@ -359,7 +359,8 @@ function cfpew_add_workshop_page() {
             'roster_received' => sanitize_text_field($_POST['roster_received']),
             'batch_number' => intval($_POST['batch_number']),
             'batch_date' => !empty($_POST['batch_date']) ? sanitize_text_field($_POST['batch_date']) : null,
-            'invoice_sent' => !empty($_POST['invoice_sent']) ? sanitize_text_field($_POST['invoice_sent']) : null,
+            'invoice_sent_flag' => isset($_POST['invoice_sent_flag']) ? 1 : 0,
+            'invoice_sent' => (isset($_POST['invoice_sent_flag']) && !empty($_POST['invoice_sent'])) ? sanitize_text_field($_POST['invoice_sent']) : null,
             'invoice_amount' => floatval($_POST['invoice_amount']),
             'invoice_received' => !empty($_POST['invoice_received']) ? sanitize_text_field($_POST['invoice_received']) : null,
             'settlement_report' => sanitize_text_field($_POST['settlement_report']),
@@ -511,13 +512,17 @@ function cfpew_add_workshop_page() {
             <h2>Billing</h2>
             <table class="form-table">
                 <tr>
-                    <th><label for="invoice_sent">Invoice Sent</label></th>
+                    <th><label for="invoice_sent_flag">Invoice Sent?</label></th>
+                    <td>
+                        <input type="checkbox" name="invoice_sent_flag" id="invoice_sent_flag" value="1" <?php if ($workshop && !empty($workshop->invoice_sent_flag)) echo 'checked'; ?> onchange="document.getElementById('invoice_sent_date_row').style.display = this.checked ? '' : 'none';">
+                        <span class="description">Check if invoice has been sent. Optionally enter a date.</span>
+                    </td>
+                </tr>
+                <tr id="invoice_sent_date_row" style="display:<?php echo ($workshop && !empty($workshop->invoice_sent_flag)) ? '' : 'none'; ?>;">
+                    <th><label for="invoice_sent">Invoice Sent Date</label></th>
                     <td>
                         <input type="date" name="invoice_sent" id="invoice_sent" class="regular-text" value="<?php echo $workshop ? esc_attr($workshop->invoice_sent) : ''; ?>">
-                        <label style="margin-left:10px; font-weight:normal;">
-                            <input type="checkbox" name="invoice_unknown" value="1" <?php if ($workshop && !empty($workshop->invoice_unknown)) echo 'checked'; ?>> Invoice sent, date unknown
-                        </label>
-                        <br><span class="description">Leave date blank and check box if date is unknown.</span>
+                        <span class="description">Optional: Enter the date the invoice was sent.</span>
                     </td>
                 </tr>
                 <tr>
@@ -1073,7 +1078,8 @@ function cfpew_import_csv($file_path) {
             'roster_received' => isset($data[16]) ? $data[16] : '',
             'batch_number' => isset($data[17]) ? intval($data[17]) : 0,
             'batch_date' => !empty($data[18]) ? date('Y-m-d', strtotime($data[18])) : null,
-            'invoice_sent' => !empty($data[20]) ? date('Y-m-d', strtotime($data[20])) : null,
+            'invoice_sent_flag' => isset($data[20]) ? 1 : 0,
+            'invoice_sent' => (isset($data[20]) && !empty($data[20])) ? sanitize_text_field($data[20]) : null,
             'invoice_amount' => isset($data[21]) ? floatval($data[21]) : 0,
             'invoice_received' => !empty($data[22]) ? date('Y-m-d', strtotime($data[22])) : null,
             'settlement_report' => isset($data[23]) ? $data[23] : '',
@@ -3800,5 +3806,15 @@ add_action('plugins_loaded', function() {
     $column = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'invoice_unknown'");
     if (empty($column)) {
         $wpdb->query("ALTER TABLE $table ADD COLUMN invoice_unknown TINYINT(1) NOT NULL DEFAULT 0");
+    }
+});
+
+// Migration: Ensure 'invoice_sent_flag' column exists
+add_action('plugins_loaded', function() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cfp_workshops';
+    $column = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'invoice_sent_flag'");
+    if (empty($column)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN invoice_sent_flag TINYINT(1) NOT NULL DEFAULT 0");
     }
 });
