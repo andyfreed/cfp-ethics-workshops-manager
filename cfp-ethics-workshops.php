@@ -560,7 +560,7 @@ function cfpew_add_workshop_page() {
                         <input type="checkbox" name="invoice_amount_override" id="invoice_amount_override" value="1" <?php if ($override) echo 'checked'; ?> onchange="document.getElementById('invoice_amount').readOnly = !this.checked; if(!this.checked){document.getElementById('invoice_amount').value='<?php echo esc_attr($calculated_invoice_amount); ?>';}">
                         <label for="invoice_amount_override">Manually override invoice amount</label><br>
                         <input type="number" name="invoice_amount" id="invoice_amount" class="regular-text" step="0.01"
-                             value="<?php echo esc_attr($override ? $workshop->invoice_amount : $calculated_invoice_amount); ?>" <?php if (!$override) echo 'readonly'; ?>>
+                             value="<?php echo esc_attr((!$override || $workshop->invoice_amount === null || $workshop->invoice_amount === '') ? $calculated_invoice_amount : $workshop->invoice_amount); ?>" <?php if (!$override) echo 'readonly'; ?>>
                         <span class="description">$15 per attendee, max $1000. Instructors are not counted.</span>
                     </td>
                 </tr>
