@@ -283,11 +283,8 @@ function cfpew_workshops_page() {
                     <td>
                         <?php
                         $invoice_sent = $workshop->invoice_sent;
-                        $invoice_unknown = isset($workshop->invoice_unknown) ? $workshop->invoice_unknown : 0;
                         if ($invoice_sent) {
                             echo '<span style="color: green; font-weight: bold;">' . esc_html($invoice_sent) . '</span>';
-                        } elseif ($invoice_unknown) {
-                            echo '<span style="color: orange; font-weight: bold;">Date Unknown</span>';
                         } else {
                             echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
                         }
@@ -2279,11 +2276,7 @@ function cfpew_dashboard_page() {
     
     ?>
     <div class="wrap cfp-workshop-dashboard-admin">
-        <div class="cfp-admin-header">
-            <h1>Workshop Dashboard</h1>
-            <p class="description">Overview of workshops with costs, descriptions, and materials</p>
-        </div>
-        
+        <!-- Removed the card/summary/info box (cfp-admin-header) -->
         <!-- Filters -->
         <div class="cfp-admin-filters">
             <form method="get" action="">
@@ -2438,16 +2431,6 @@ function cfpew_dashboard_page() {
         <style>
         .cfp-workshop-dashboard-admin {
             margin-right: 20px;
-        }
-        
-        .cfp-admin-header {
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        .cfp-admin-header h1 {
-            margin-bottom: 5px;
         }
         
         .cfp-admin-filters {
