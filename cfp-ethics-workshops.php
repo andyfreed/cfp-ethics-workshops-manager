@@ -538,6 +538,16 @@ function cfpew_add_workshop_page() {
             </table>
             
             <h2>Billing</h2>
+            <?php
+            $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+            $attendee_count = '';
+            $calculated_invoice_amount = '';
+            if ($workshop && isset($workshop->id)) {
+                $attendee_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d AND (is_instructor = 0 OR is_instructor IS NULL)", $workshop->id));
+                $calculated_invoice_amount = min($attendee_count * 15, 1000);
+            }
+            $override = $workshop && !empty($workshop->invoice_amount_override);
+            ?>
             <table class="form-table">
                 <!-- Keep only the following fields: -->
                 <tr>
