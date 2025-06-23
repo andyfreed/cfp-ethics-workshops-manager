@@ -169,8 +169,8 @@ function cfpew_handle_early_downloads() {
 add_action('admin_menu', 'cfpew_admin_menu');
 function cfpew_admin_menu() {
     add_menu_page(
-        'Dashboard',
-        'Dashboard',
+        'CFP Ethics Workshops',
+        'CFP Ethics Workshops',
         'manage_options',
         'cfp-workshops',
         'cfpew_workshops_page',
@@ -235,7 +235,7 @@ function cfpew_workshops_page() {
     
     // Refactored: Lean filter logic for uninvoiced workshops
     $show_uninvoiced = !empty($_GET['show_uninvoiced']);
-    $where = $show_uninvoiced ? "WHERE (invoice_sent IS NULL OR invoice_sent = '' OR invoice_unknown = 0)" : '';
+    $where = $show_uninvoiced ? "WHERE (invoice_sent IS NULL OR invoice_sent = '' OR invoice_sent = '0000-00-00') AND (invoice_unknown = 0)" : '';
     $total_items = $wpdb->get_var("SELECT COUNT(*) FROM $table_name $where");
     $workshops = $wpdb->get_results($wpdb->prepare(
         "SELECT * FROM $table_name $where ORDER BY seminar_date DESC LIMIT %d OFFSET %d",
@@ -283,8 +283,11 @@ function cfpew_workshops_page() {
                     <td>
                         <?php
                         $invoice_sent = $workshop->invoice_sent;
+                        $invoice_unknown = isset($workshop->invoice_unknown) ? $workshop->invoice_unknown : 0;
                         if ($invoice_sent) {
                             echo '<span style="color: green; font-weight: bold;">' . esc_html($invoice_sent) . '</span>';
+                        } elseif ($invoice_unknown) {
+                            echo '<span style="color: orange; font-weight: bold;">Date Unknown</span>';
                         } else {
                             echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
                         }
