@@ -243,9 +243,26 @@ function cfpew_workshops_page() {
         $per_page, $offset
     ));
     
+    // Calculate total amount of all invoices that have not been sent
+    $unsent_total = 0;
+    foreach ($workshops as $workshop) {
+        if (empty($workshop->invoice_sent_flag)) {
+            $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+            $attendee_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d AND (is_instructor = 0 OR is_instructor IS NULL)", $workshop->id));
+            $invoice_amount = min($attendee_count * 15, 1000);
+            if (isset($workshop->invoice_amount_override) && $workshop->invoice_amount_override) {
+                $invoice_amount = $workshop->invoice_amount;
+            }
+            $unsent_total += $invoice_amount;
+        }
+    }
+    
     ?>
     <div class="wrap">
         <h1>CFP Ethics Workshops <a href="?page=cfp-workshops-add" class="page-title-action">Add New</a></h1>
+        <div style="font-size: 1.2em; margin-bottom: 1em; color: red; font-weight: bold;">
+            Total Unsent Invoices: $<?php echo number_format($unsent_total, 2); ?>
+        </div>
         
         <!-- Lean filter UI -->
         <form method="get" style="margin-bottom: 1em;">
