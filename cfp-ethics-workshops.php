@@ -164,6 +164,12 @@ function cfpew_handle_early_downloads() {
             wp_die('Template file not found');
         }
     }
+    
+    // Handle invoice generation
+    if ($page == 'cfp-workshops' && isset($_GET['action']) && $_GET['action'] == 'generate_invoice' && isset($_GET['id'])) {
+        cfpew_generate_invoice_pdf(intval($_GET['id']));
+        exit;
+    }
 }
 
 // Add admin menu
@@ -327,6 +333,7 @@ function cfpew_workshops_page() {
                         <br><br>
                         <a href="?page=cfp-workshops&action=generate_materials&id=<?php echo $workshop->id; ?>" 
                            class="button button-primary button-small">📄 Generate Materials</a>
+                        <a href="?page=cfp-workshops&action=generate_invoice&id=<?php echo $workshop->id; ?>" class="button button-secondary button-small">🧾 Generate Invoice PDF</a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -3873,3 +3880,51 @@ add_action('plugins_loaded', function() {
         $wpdb->query("ALTER TABLE $table ADD COLUMN invoice_amount_override TINYINT(1) NOT NULL DEFAULT 0");
     }
 });
+
+// Generate invoice PDF
+function cfpew_generate_invoice_pdf($workshop_id) {
+    global $wpdb;
+    $workshop = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}cfp_workshops WHERE id = %d", $workshop_id));
+    if (!$workshop) wp_die('Workshop not found');
+    $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+    $attendee_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d AND (is_instructor = 0 OR is_instructor IS NULL)", $workshop->id));
+    $invoice_amount = min($attendee_count * 15, 1000);
+    if (isset($workshop->invoice_amount_override) && $workshop->invoice_amount_override) {
+        $invoice_amount = $workshop->invoice_amount;
+    }
+    // Include TCPDF
+    cfpew_include_pdf_libraries();
+    if (!class_exists('TCPDF')) wp_die('TCPDF not available');
+    $upload_dir = wp_upload_dir();
+    $output_dir = $upload_dir['basedir'] . '/cfp-invoices/';
+    if (!file_exists($output_dir)) wp_mkdir_p($output_dir);
+    $output_filename = 'invoice-' . $workshop->id . '-' . uniqid() . '.pdf';
+    $output_path = $output_dir . $output_filename;
+    $pdf = new TCPDF();
+    $pdf->SetCreator('CFP Ethics Workshops');
+    $pdf->SetAuthor('CFP Ethics Workshops');
+    $pdf->SetTitle('Invoice');
+    $pdf->AddPage();
+    // Logo
+    $logo_path = CFPEW_PLUGIN_PATH . 'logo-registered.png';
+    if (file_exists($logo_path)) {
+        $pdf->Image($logo_path, 15, 10, 40);
+    }
+    $pdf->SetFont('helvetica', 'B', 20);
+    $pdf->Cell(0, 15, 'Invoice', 0, 1, 'R');
+    $pdf->SetFont('helvetica', '', 12);
+    $pdf->Ln(10);
+    $pdf->Cell(0, 10, 'Date: ' . date('F j, Y'), 0, 1, 'R');
+    $pdf->Ln(10);
+    $pdf->SetFont('helvetica', '', 12);
+    $pdf->MultiCell(0, 8, "Workshop: {$workshop->customer}\nDate: {$workshop->seminar_date}\nLocation: {$workshop->location}\nInstructor: {$workshop->instructor}", 0, 'L');
+    $pdf->Ln(10);
+    $pdf->SetFont('helvetica', 'B', 14);
+    $pdf->Cell(0, 10, 'Invoice Amount: $' . number_format($invoice_amount, 2), 0, 1, 'L');
+    $pdf->Ln(10);
+    $pdf->SetFont('helvetica', '', 10);
+    $pdf->MultiCell(0, 8, 'Thank you for your business!', 0, 'L');
+    $pdf->Output($output_path, 'F');
+    cfpew_download_file($output_path, 'Invoice-' . $workshop->customer . '-' . $workshop->seminar_date . '.pdf');
+    exit;
+}
