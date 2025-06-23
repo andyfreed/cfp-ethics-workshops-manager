@@ -287,7 +287,7 @@ function cfpew_workshops_page() {
                         if ($invoice_sent_flag && $invoice_sent) {
                             echo '<span style="color: green; font-weight: bold;">' . esc_html($invoice_sent) . '</span>';
                         } elseif ($invoice_sent_flag) {
-                            echo '<span style="color: orange; font-weight: bold;">Sent (no date)</span>';
+                            echo '<span style="color: green; font-weight: bold;">Sent (no date)</span>';
                         } else {
                             echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
                         }
