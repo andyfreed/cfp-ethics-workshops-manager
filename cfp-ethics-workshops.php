@@ -235,7 +235,7 @@ function cfpew_workshops_page() {
     
     // Refactored: Lean filter logic for uninvoiced workshops
     $show_uninvoiced = !empty($_GET['show_uninvoiced']);
-    $where = $show_uninvoiced ? "WHERE (invoice_sent IS NULL OR invoice_sent = '' OR invoice_sent = '0000-00-00') AND (invoice_unknown = 0)" : '';
+    $where = $show_uninvoiced ? "WHERE invoice_sent_flag = 0" : '';
     $total_items = $wpdb->get_var("SELECT COUNT(*) FROM $table_name $where");
     $workshops = $wpdb->get_results($wpdb->prepare(
         "SELECT * FROM $table_name $where ORDER BY seminar_date DESC LIMIT %d OFFSET %d",
