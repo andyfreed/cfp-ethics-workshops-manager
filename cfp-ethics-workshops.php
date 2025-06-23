@@ -482,9 +482,20 @@ function cfpew_add_workshop_page() {
                              value="<?php echo $workshop ? esc_attr($workshop->all_materials_sent) : ''; ?>"></td>
                 </tr>
                 <tr>
-                    <th><label for="attendees_count"># Attend Including Instructor</label></th>
-                    <td><input type="number" name="attendees_count" id="attendees_count" class="small-text" 
-                             value="<?php echo $workshop ? esc_attr($workshop->attendees_count) : ''; ?>"></td>
+                    <th><label for="attendees_count"># of Attendees</label></th>
+                    <td>
+                        <?php
+                        // Auto-calculate attendee count if editing an existing workshop
+                        $auto_attendees_count = '';
+                        if ($workshop && isset($workshop->id)) {
+                            $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+                            $auto_attendees_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d", $workshop->id));
+                        }
+                        ?>
+                        <input type="number" name="attendees_count" id="attendees_count" class="small-text" 
+                            value="<?php echo $workshop ? esc_attr($auto_attendees_count) : ''; ?>">
+                        <span class="description">This is the number of people who signed in for this workshop.</span>
+                    </td>
                 </tr>
                 <tr>
                     <th><label for="roster_received">Roster Received</label></th>
