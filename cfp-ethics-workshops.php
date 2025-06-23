@@ -98,6 +98,7 @@ function cfpew_create_tables() {
         instructor_knowledgeable_rating int(1) DEFAULT NULL,
         overall_rating int(1) DEFAULT NULL,
         email_newsletter tinyint(1) DEFAULT 0,
+        is_instructor tinyint(1) DEFAULT 0,
         completion_date datetime DEFAULT CURRENT_TIMESTAMP,
         ip_address varchar(45) DEFAULT NULL,
         PRIMARY KEY (id),
@@ -282,17 +283,44 @@ function cfpew_workshops_page() {
                     <td><?php echo esc_html($workshop->attendees_count); ?></td>
                     <td>
                         <?php
+                        $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+                        $attendee_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d AND (is_instructor = 0 OR is_instructor IS NULL)", $workshop->id));
+                        $invoice_amount = min($attendee_count * 15, 1000);
                         $invoice_sent_flag = isset($workshop->invoice_sent_flag) ? $workshop->invoice_sent_flag : 0;
                         $invoice_sent = $workshop->invoice_sent;
-                        if ($invoice_sent_flag && $invoice_sent) {
-                            echo '<span style="color: green; font-weight: bold;">' . esc_html($invoice_sent) . '</span>';
+                        $invoice_received_flag = isset($workshop->invoice_received_flag) ? $workshop->invoice_received_flag : 0;
+                        $invoice_received = $workshop->invoice_received;
+                        if ($invoice_sent_flag && $invoice_received_flag) {
+                            // Green: sent and received
+                            echo '<span style="color: green; font-weight: bold;">';
+                            if ($invoice_sent) {
+                                echo esc_html($invoice_sent);
+                            } else {
+                                echo 'Sent (no date)';
+                            }
+                            echo ' / ';
+                            if ($invoice_received) {
+                                echo esc_html($invoice_received);
+                            } else {
+                                echo 'Received (no date)';
+                            }
+                            echo '</span>';
                         } elseif ($invoice_sent_flag) {
-                            echo '<span style="color: green; font-weight: bold;">Sent (no date)</span>';
+                            // Orange: sent but not received
+                            echo '<span style="color: orange; font-weight: bold;">';
+                            if ($invoice_sent) {
+                                echo esc_html($invoice_sent);
+                            } else {
+                                echo 'Sent (no date)';
+                            }
+                            echo ' / Not Received';
+                            echo '</span>';
                         } else {
-                            echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
+                            // Red: not sent or not received
+                            echo '<span style="color: red; font-weight: bold;">Not Sent / Not Received</span>';
                         }
+                        echo '<br>$' . number_format($invoice_amount, 2);
                         ?>
-                        <br>$<?php echo number_format($workshop->invoice_amount, 2); ?>
                     </td>
                     <td>
                         <a href="?page=cfp-workshops-add&id=<?php echo $workshop->id; ?>" class="button button-small">Edit</a>
@@ -362,7 +390,8 @@ function cfpew_add_workshop_page() {
             'invoice_sent_flag' => isset($_POST['invoice_sent_flag']) ? 1 : 0,
             'invoice_sent' => (isset($_POST['invoice_sent_flag']) && !empty($_POST['invoice_sent'])) ? sanitize_text_field($_POST['invoice_sent']) : null,
             'invoice_amount' => floatval($_POST['invoice_amount']),
-            'invoice_received' => !empty($_POST['invoice_received']) ? sanitize_text_field($_POST['invoice_received']) : null,
+            'invoice_received_flag' => isset($_POST['invoice_received_flag']) ? 1 : 0,
+            'invoice_received' => (isset($_POST['invoice_received_flag']) && !empty($_POST['invoice_received'])) ? sanitize_text_field($_POST['invoice_received']) : null,
             'settlement_report' => sanitize_text_field($_POST['settlement_report']),
             'evals_to_cfpb' => sanitize_text_field($_POST['evals_to_cfpb']),
             'notes' => sanitize_textarea_field($_POST['notes']),
@@ -475,7 +504,7 @@ function cfpew_add_workshop_page() {
                         $auto_attendees_count = '';
                         if ($workshop && isset($workshop->id)) {
                             $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
-                            $auto_attendees_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d", $workshop->id));
+                            $auto_attendees_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d AND (is_instructor = 0 OR is_instructor IS NULL)", $workshop->id));
                         }
                         ?>
                         <input type="number" name="attendees_count" id="attendees_count" class="small-text" 
@@ -528,12 +557,23 @@ function cfpew_add_workshop_page() {
                 <tr>
                     <th><label for="invoice_amount">Invoice Amount ($)</label></th>
                     <td><input type="number" name="invoice_amount" id="invoice_amount" class="regular-text" step="0.01"
-                             value="<?php echo $workshop ? esc_attr($workshop->invoice_amount) : ''; ?>"></td>
+                             value="<?php echo $workshop ? esc_attr($workshop->invoice_amount) : ''; ?>">
+                        <span class="description">$15 per attendee, max $1000. Instructors are not counted.</span>
+                    </td>
                 </tr>
                 <tr>
-                    <th><label for="invoice_received">Invoice Received</label></th>
-                    <td><input type="date" name="invoice_received" id="invoice_received" class="regular-text" 
-                             value="<?php echo $workshop ? esc_attr($workshop->invoice_received) : ''; ?>"></td>
+                    <th><label for="invoice_received_flag">Invoice Received?</label></th>
+                    <td>
+                        <input type="checkbox" name="invoice_received_flag" id="invoice_received_flag" value="1" <?php if ($workshop && !empty($workshop->invoice_received_flag)) echo 'checked'; ?> onchange="document.getElementById('invoice_received_date_row').style.display = this.checked ? '' : 'none';">
+                        <span class="description">Check if invoice has been received. Optionally enter a date.</span>
+                    </td>
+                </tr>
+                <tr id="invoice_received_date_row" style="display:<?php echo ($workshop && !empty($workshop->invoice_received_flag)) ? '' : 'none'; ?>;">
+                    <th><label for="invoice_received">Invoice Received Date</label></th>
+                    <td>
+                        <input type="date" name="invoice_received" id="invoice_received" class="regular-text" value="<?php echo $workshop ? esc_attr($workshop->invoice_received) : ''; ?>">
+                        <span class="description">Optional: Enter the date the invoice was received.</span>
+                    </td>
                 </tr>
                 <tr>
                     <th><label for="settlement_report">Settlement Report</label></th>
@@ -659,6 +699,7 @@ function cfpew_signins_page() {
                     <th>CFP® ID</th>
                     <th>Affiliation</th>
                     <th>Overall Rating</th>
+                    <th>Instructor?</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -673,6 +714,7 @@ function cfpew_signins_page() {
                         <td><?php echo esc_html($signin->cfp_id); ?></td>
                         <td><?php echo esc_html($signin->affiliation); ?></td>
                         <td><?php echo $signin->overall_rating ? str_repeat('★', $signin->overall_rating) : 'N/A'; ?></td>
+                        <td><?php echo !empty($signin->is_instructor) ? '<span style=\'color: #007cba; font-weight: bold;\'>Yes</span>' : ''; ?></td>
                         <td>
                             <a href="?page=cfp-workshops-signins&action=delete&id=<?php echo $signin->id; ?>" 
                                class="button button-small" onclick="return confirm('Are you sure?')">Delete</a>
@@ -725,6 +767,7 @@ function cfpew_add_signin_page() {
             'instructor_knowledgeable_rating' => intval($_POST['instructor_knowledgeable_rating']),
             'overall_rating' => intval($_POST['overall_rating']),
             'email_newsletter' => isset($_POST['email_newsletter']) ? 1 : 0,
+            'is_instructor' => isset($_POST['is_instructor']) ? 1 : 0,
             'completion_date' => current_time('mysql'),
             'ip_address' => 'Manual Entry'
         );
@@ -773,6 +816,10 @@ function cfpew_add_signin_page() {
                 <tr>
                     <th><label for="affiliation">Affiliation</label></th>
                     <td><input type="text" name="affiliation" id="affiliation" class="regular-text"></td>
+                </tr>
+                <tr>
+                    <th><label for="is_instructor">Is Instructor?</label></th>
+                    <td><input type="checkbox" name="is_instructor" id="is_instructor" value="1"></td>
                 </tr>
             </table>
             
@@ -1081,7 +1128,8 @@ function cfpew_import_csv($file_path) {
             'invoice_sent_flag' => isset($data[20]) ? 1 : 0,
             'invoice_sent' => (isset($data[20]) && !empty($data[20])) ? sanitize_text_field($data[20]) : null,
             'invoice_amount' => isset($data[21]) ? floatval($data[21]) : 0,
-            'invoice_received' => !empty($data[22]) ? date('Y-m-d', strtotime($data[22])) : null,
+            'invoice_received_flag' => isset($data[22]) ? 1 : 0,
+            'invoice_received' => (isset($data[22]) && !empty($data[22])) ? sanitize_text_field($data[22]) : null,
             'settlement_report' => isset($data[23]) ? $data[23] : '',
             'evals_to_cfpb' => isset($data[24]) ? $data[24] : '',
             'notes' => isset($data[25]) ? $data[25] : ''
@@ -2774,6 +2822,12 @@ function cfpew_signin_shortcode($atts) {
                 </label>
             </div>
             
+            <div class="cfp-form-field">
+                <label for="is_instructor">
+                    <input type="checkbox" name="is_instructor" id="is_instructor" value="1"> I am the instructor for this workshop
+                </label>
+            </div>
+            
             <p class="cfp-submit">
                 <input type="submit" name="cfp_signin_submit" value="Submit" class="button">
             </p>
@@ -3523,6 +3577,7 @@ function cfpew_process_signin() {
             'instructor_knowledgeable_rating' => intval($_POST['instructor_knowledgeable_rating']),
             'overall_rating' => intval($_POST['overall_rating']),
             'email_newsletter' => isset($_POST['email_newsletter']) ? 1 : 0,
+            'is_instructor' => isset($_POST['is_instructor']) ? 1 : 0,
             'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'Unknown',
             'completion_date' => current_time('mysql')
         );
