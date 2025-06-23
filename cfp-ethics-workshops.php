@@ -3770,35 +3770,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cfpew_invoice_unknown
     exit;
 }
 
-// Temporary admin action: Set invoice_unknown = 1 for all workshops
-add_action('admin_menu', function() {
-    add_submenu_page(
-        null, // No menu item, direct access only
-        'Set Invoice Unknown for All Workshops',
-        'Set Invoice Unknown',
-        'manage_options',
-        'cfpew-set-invoice-unknown',
-        function() {
-            global $wpdb;
-            $table = $wpdb->prefix . 'cfp_workshops';
-            $wpdb->query("UPDATE $table SET invoice_unknown = 1");
-            echo '<div class="notice notice-success"><p>All workshops updated: Invoice sent (unknown) is now checked for all.</p></div>';
-            echo '<a href="' . admin_url('admin.php?page=cfp-workshops') . '" class="button">Back to Dashboard</a>';
-        }
-    );
-});
-
-// Add a button to the Dashboard page for this action (temporary)
-add_action('admin_notices', function() {
-    if (isset($_GET['page']) && $_GET['page'] === 'cfp-workshops' && current_user_can('manage_options')) {
-        echo '<div class="notice notice-warning"><form method="get" action="">
-            <input type="hidden" name="page" value="cfpew-set-invoice-unknown">
-            <button type="submit" class="button button-primary">Set Invoice Sent (Unknown) for All Workshops</button>
-            <span style="margin-left:10px; color:#b00;">(Temporary admin tool, remove after use)</span>
-        </form></div>';
-    }
-});
-
 // Migration: Ensure 'invoice_unknown' column exists in cfp_workshops table
 add_action('plugins_loaded', function() {
     global $wpdb;
@@ -3816,34 +3787,5 @@ add_action('plugins_loaded', function() {
     $column = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'invoice_sent_flag'");
     if (empty($column)) {
         $wpdb->query("ALTER TABLE $table ADD COLUMN invoice_sent_flag TINYINT(1) NOT NULL DEFAULT 0");
-    }
-});
-
-// Temporary admin action: Set invoice_sent_flag = 1 for all workshops
-add_action('admin_menu', function() {
-    add_submenu_page(
-        null, // No menu item, direct access only
-        'Set Invoice Sent for All Workshops',
-        'Set Invoice Sent',
-        'manage_options',
-        'cfpew-set-invoice-sent',
-        function() {
-            global $wpdb;
-            $table = $wpdb->prefix . 'cfp_workshops';
-            $wpdb->query("UPDATE $table SET invoice_sent_flag = 1");
-            echo '<div class="notice notice-success"><p>All workshops updated: Invoice Sent is now checked for all.</p></div>';
-            echo '<a href="' . admin_url('admin.php?page=cfp-workshops') . '" class="button">Back to Dashboard</a>';
-        }
-    );
-});
-
-// Add a button to the Dashboard page for this action (temporary)
-add_action('admin_notices', function() {
-    if (isset($_GET['page']) && $_GET['page'] === 'cfp-workshops' && current_user_can('manage_options')) {
-        echo '<div class="notice notice-warning"><form method="get" action="">
-            <input type="hidden" name="page" value="cfpew-set-invoice-sent">
-            <button type="submit" class="button button-primary">Set Invoice Sent for All Workshops</button>
-            <span style="margin-left:10px; color:#b00;">(Temporary admin tool, remove after use)</span>
-        </form></div>';
     }
 });
