@@ -292,32 +292,13 @@ function cfpew_workshops_page() {
                         $invoice_received = $workshop->invoice_received;
                         if ($invoice_sent_flag && $invoice_received_flag) {
                             // Green: sent and received
-                            echo '<span style="color: green; font-weight: bold;">';
-                            if ($invoice_sent) {
-                                echo esc_html($invoice_sent);
-                            } else {
-                                echo 'Sent (no date)';
-                            }
-                            echo ' / ';
-                            if ($invoice_received) {
-                                echo esc_html($invoice_received);
-                            } else {
-                                echo 'Received (no date)';
-                            }
-                            echo '</span>';
+                            echo '<span style="color: green; font-weight: bold;">Complete</span>';
                         } elseif ($invoice_sent_flag) {
                             // Orange: sent but not received
-                            echo '<span style="color: orange; font-weight: bold;">';
-                            if ($invoice_sent) {
-                                echo esc_html($invoice_sent);
-                            } else {
-                                echo 'Sent (no date)';
-                            }
-                            echo ' / Not Received';
-                            echo '</span>';
+                            echo '<span style="color: orange; font-weight: bold;">Sent</span>';
                         } else {
                             // Red: not sent or not received
-                            echo '<span style="color: red; font-weight: bold;">Not Sent / Not Received</span>';
+                            echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
                         }
                         echo '<br>$' . number_format($invoice_amount, 2);
                         ?>
