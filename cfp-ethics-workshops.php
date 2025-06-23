@@ -3924,6 +3924,16 @@ function cfpew_generate_invoice_pdf($workshop_id) {
     $pdf->Ln(10);
     $pdf->SetFont('helvetica', '', 10);
     $pdf->MultiCell(0, 8, 'Thank you for your business!', 0, 'L');
+    // Subtotal and Total (no shipping)
+    $pdf->Ln(10);
+    $pdf->SetX(120);
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->Cell(40, 8, 'Subtotal:', 0, 0, 'R');
+    $pdf->Cell(30, 8, '$' . number_format($attendee_count * 15, 2), 0, 1, 'R');
+    $pdf->SetX(120);
+    $pdf->SetFont('helvetica', 'B', 12);
+    $pdf->Cell(40, 8, 'Total:', 0, 0, 'R');
+    $pdf->Cell(30, 8, '$' . number_format($invoice_amount, 2), 0, 1, 'R');
     $pdf->Output($output_path, 'F');
     cfpew_download_file($output_path, 'Invoice-' . $workshop->customer . '-' . $workshop->seminar_date . '.pdf');
     exit;
