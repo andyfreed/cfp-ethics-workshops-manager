@@ -180,8 +180,8 @@ function cfpew_admin_menu() {
     
     add_submenu_page(
         'cfp-workshops',
-        'All Workshops',
-        'All Workshops',
+        'Dashboard',
+        'Dashboard',
         'manage_options',
         'cfp-workshops',
         'cfpew_workshops_page'
@@ -213,33 +213,6 @@ function cfpew_admin_menu() {
         'cfp-workshops-signin-add',
         'cfpew_add_signin_page'
     );
-    
-    add_submenu_page(
-        'cfp-workshops',
-        'Workshop Dashboard',
-        'Dashboard',
-        'manage_options',
-        'cfp-workshops-dashboard',
-        'cfpew_dashboard_page'
-    );
-    
-    add_submenu_page(
-        'cfp-workshops',
-        'Materials Templates',
-        'Materials Templates',
-        'manage_options',
-        'cfp-workshops-templates',
-        'cfpew_templates_page'
-    );
-    
-    add_submenu_page(
-        'cfp-workshops',
-        'Import Data',
-        'Import Data',
-        'manage_options',
-        'cfp-workshops-import',
-        'cfpew_import_page'
-    );
 }
 
 // Workshops list page
@@ -260,16 +233,27 @@ function cfpew_workshops_page() {
     $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
     $offset = ($current_page - 1) * $per_page;
     
-    // Get workshops
-    $total_items = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+    // Refactored: Lean filter logic for uninvoiced workshops
+    $show_uninvoiced = !empty($_GET['show_uninvoiced']);
+    $where = $show_uninvoiced ? "WHERE (invoice_sent IS NULL OR invoice_sent = '' OR invoice_unknown = 0)" : '';
+    $total_items = $wpdb->get_var("SELECT COUNT(*) FROM $table_name $where");
     $workshops = $wpdb->get_results($wpdb->prepare(
-        "SELECT * FROM $table_name ORDER BY seminar_date DESC LIMIT %d OFFSET %d",
+        "SELECT * FROM $table_name $where ORDER BY seminar_date DESC LIMIT %d OFFSET %d",
         $per_page, $offset
     ));
     
     ?>
     <div class="wrap">
         <h1>CFP Ethics Workshops <a href="?page=cfp-workshops-add" class="page-title-action">Add New</a></h1>
+        
+        <!-- Lean filter UI -->
+        <form method="get" style="margin-bottom: 1em;">
+            <input type="hidden" name="page" value="cfp-workshops">
+            <label>
+                <input type="checkbox" name="show_uninvoiced" value="1" <?php checked($show_uninvoiced, 1); ?> onchange="this.form.submit()">
+                Show only workshops where invoice has not been sent
+            </label>
+        </form>
         
         <table class="wp-list-table widefat fixed striped">
             <thead>
@@ -389,7 +373,8 @@ function cfpew_add_workshop_page() {
             'notes' => sanitize_textarea_field($_POST['notes']),
             'workshop_cost' => floatval($_POST['workshop_cost']),
             'workshop_description' => sanitize_textarea_field($_POST['workshop_description']),
-            'materials_files' => sanitize_textarea_field($_POST['materials_files'])
+            'materials_files' => sanitize_textarea_field($_POST['materials_files']),
+            'invoice_unknown' => isset($_POST['invoice_unknown']) ? 1 : 0
         );
         
         if ($workshop) {
@@ -533,8 +518,13 @@ function cfpew_add_workshop_page() {
             <table class="form-table">
                 <tr>
                     <th><label for="invoice_sent">Invoice Sent</label></th>
-                    <td><input type="date" name="invoice_sent" id="invoice_sent" class="regular-text" 
-                             value="<?php echo $workshop ? esc_attr($workshop->invoice_sent) : ''; ?>"></td>
+                    <td>
+                        <input type="date" name="invoice_sent" id="invoice_sent" class="regular-text" value="<?php echo $workshop ? esc_attr($workshop->invoice_sent) : ''; ?>">
+                        <label style="margin-left:10px; font-weight:normal;">
+                            <input type="checkbox" name="invoice_unknown" value="1" <?php if ($workshop && !empty($workshop->invoice_unknown)) echo 'checked'; ?>> Invoice sent, date unknown
+                        </label>
+                        <br><span class="description">Leave date blank and check box if date is unknown.</span>
+                    </td>
                 </tr>
                 <tr>
                     <th><label for="invoice_amount">Invoice Amount ($)</label></th>
@@ -1118,43 +1108,6 @@ function cfpew_import_csv($file_path) {
     echo sprintf('Import complete! %d workshops imported, %d workshops updated.', $imported, $updated);
     echo '</p></div>';
 }
-
-// =============================================================================
-// DEBUG HELPER FUNCTIONS
-// =============================================================================
-
-// Add admin notice to show debug log location
-function cfpew_show_debug_info() {
-    if (current_user_can('manage_options')) {
-        $debug_enabled = defined('WP_DEBUG') && WP_DEBUG;
-        $debug_log_enabled = defined('WP_DEBUG_LOG') && WP_DEBUG_LOG;
-        
-        if (isset($_GET['cfp_debug_test'])) {
-            error_log('CFP WORKSHOP DEBUG TEST - This is a test message from WordPress admin');
-            echo '<div class="notice notice-success"><p><strong>CFP Workshop Debug Test:</strong> A test message has been sent to the error log. Check your debug log for: "CFP WORKSHOP DEBUG TEST"</p></div>';
-        }
-        
-        echo '<div class="notice notice-info"><p>';
-        echo '<strong>CFP Workshop Debug Status:</strong><br>';
-        echo 'WP_DEBUG: ' . ($debug_enabled ? 'ENABLED' : 'DISABLED') . '<br>';
-        echo 'WP_DEBUG_LOG: ' . ($debug_log_enabled ? 'ENABLED' : 'DISABLED') . '<br>';
-        
-        if ($debug_log_enabled) {
-            $upload_dir = wp_upload_dir();
-            echo 'Expected debug log location: ' . WP_CONTENT_DIR . '/debug.log<br>';
-        }
-        
-        echo '<a href="' . add_query_arg('cfp_debug_test', '1') . '" class="button">Send Test Debug Message</a>';
-        echo '</p></div>';
-    }
-}
-
-// Show debug info on plugin pages
-add_action('admin_notices', function() {
-    if (isset($_GET['page']) && strpos($_GET['page'], 'cfp-workshops') !== false) {
-        cfpew_show_debug_info();
-    }
-});
 
 // =============================================================================
 // WORKSHOP MATERIALS GENERATION SYSTEM
@@ -3611,15 +3564,6 @@ function cfpew_process_signin() {
         error_log('CFP Workshop Sign-in: Exception occurred - ' . $e->getMessage());
         wp_die('An unexpected error occurred during sign-in. Please try again or contact support. Error: ' . $e->getMessage());
     }
-}
-
-// Test endpoint to verify plugin is working
-add_action('wp_ajax_cfp_test_endpoint', 'cfpew_test_endpoint');
-add_action('wp_ajax_nopriv_cfp_test_endpoint', 'cfpew_test_endpoint');
-function cfpew_test_endpoint() {
-    error_log('CFP Workshop: Test endpoint called successfully');
-    echo 'CFP Workshop Plugin is working! Time: ' . current_time('Y-m-d H:i:s');
-    wp_die();
 }
 
 // AJAX endpoint to get workshops for a specific date
