@@ -398,7 +398,8 @@ function cfpew_add_workshop_page() {
             'workshop_cost' => floatval($_POST['workshop_cost']),
             'workshop_description' => sanitize_textarea_field($_POST['workshop_description']),
             'materials_files' => sanitize_textarea_field($_POST['materials_files']),
-            'invoice_unknown' => isset($_POST['invoice_unknown']) ? 1 : 0
+            'invoice_unknown' => isset($_POST['invoice_unknown']) ? 1 : 0,
+            'invoice_amount_override' => isset($_POST['invoice_amount_override']) ? 1 : 0
         );
         
         if ($workshop) {
@@ -556,8 +557,11 @@ function cfpew_add_workshop_page() {
                 </tr>
                 <tr>
                     <th><label for="invoice_amount">Invoice Amount ($)</label></th>
-                    <td><input type="number" name="invoice_amount" id="invoice_amount" class="regular-text" step="0.01"
-                             value="<?php echo $workshop ? esc_attr($workshop->invoice_amount) : ''; ?>">
+                    <td>
+                        <input type="checkbox" name="invoice_amount_override" id="invoice_amount_override" value="1" <?php if ($workshop && !empty($workshop->invoice_amount_override)) echo 'checked'; ?> onchange="document.getElementById('invoice_amount').readOnly = !this.checked; if(!this.checked){document.getElementById('invoice_amount').value='<?php echo esc_attr($workshop->invoice_amount); ?>';}">
+                        <label for="invoice_amount_override">Manually override invoice amount</label><br>
+                        <input type="number" name="invoice_amount" id="invoice_amount" class="regular-text" step="0.01"
+                             value="<?php echo esc_attr($workshop->invoice_amount); ?>" <?php if (!$workshop->invoice_amount_override) echo 'readonly'; ?>>
                         <span class="description">$15 per attendee, max $1000. Instructors are not counted.</span>
                     </td>
                 </tr>
@@ -3848,5 +3852,15 @@ add_action('plugins_loaded', function() {
     $column = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'invoice_sent_flag'");
     if (empty($column)) {
         $wpdb->query("ALTER TABLE $table ADD COLUMN invoice_sent_flag TINYINT(1) NOT NULL DEFAULT 0");
+    }
+});
+
+// Add migration to ensure 'invoice_amount_override' column exists in cfp_workshops table:
+add_action('plugins_loaded', function() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cfp_workshops';
+    $column = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'invoice_amount_override'");
+    if (empty($column)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN invoice_amount_override TINYINT(1) NOT NULL DEFAULT 0");
     }
 });
