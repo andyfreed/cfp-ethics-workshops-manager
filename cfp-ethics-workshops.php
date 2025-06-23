@@ -2822,12 +2822,6 @@ function cfpew_signin_shortcode($atts) {
                 </label>
             </div>
             
-            <div class="cfp-form-field">
-                <label for="is_instructor">
-                    <input type="checkbox" name="is_instructor" id="is_instructor" value="1"> I am the instructor for this workshop
-                </label>
-            </div>
-            
             <p class="cfp-submit">
                 <input type="submit" name="cfp_signin_submit" value="Submit" class="button">
             </p>
@@ -3577,7 +3571,6 @@ function cfpew_process_signin() {
             'instructor_knowledgeable_rating' => intval($_POST['instructor_knowledgeable_rating']),
             'overall_rating' => intval($_POST['overall_rating']),
             'email_newsletter' => isset($_POST['email_newsletter']) ? 1 : 0,
-            'is_instructor' => isset($_POST['is_instructor']) ? 1 : 0,
             'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'Unknown',
             'completion_date' => current_time('mysql')
         );
