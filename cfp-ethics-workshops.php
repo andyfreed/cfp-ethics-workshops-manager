@@ -3789,3 +3789,13 @@ add_action('admin_notices', function() {
         </form></div>';
     }
 });
+
+// Migration: Ensure 'invoice_unknown' column exists in cfp_workshops table
+add_action('plugins_loaded', function() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cfp_workshops';
+    $column = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'invoice_unknown'");
+    if (empty($column)) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN invoice_unknown TINYINT(1) NOT NULL DEFAULT 0");
+    }
+});
