@@ -663,6 +663,14 @@ function cfpew_signins_page() {
         ORDER BY seminar_date DESC
     ");
     
+    // Handle instructor status update
+    if (isset($_POST['cfpew_update_instructor_id']) && current_user_can('manage_options')) {
+        $signin_id = intval($_POST['cfpew_update_instructor_id']);
+        $is_instructor = isset($_POST['is_instructor']) ? 1 : 0;
+        $wpdb->update($signins_table, array('is_instructor' => $is_instructor), array('id' => $signin_id));
+        echo '<div class="notice notice-success"><p>Instructor status updated.</p></div>';
+    }
+    
     ?>
     <div class="wrap">
         <h1>Workshop Sign-ins <a href="?page=cfp-workshops-signin-add" class="page-title-action">Add Manual Sign-in</a></h1>
@@ -714,7 +722,12 @@ function cfpew_signins_page() {
                         <td><?php echo esc_html($signin->cfp_id); ?></td>
                         <td><?php echo esc_html($signin->affiliation); ?></td>
                         <td><?php echo $signin->overall_rating ? str_repeat('★', $signin->overall_rating) : 'N/A'; ?></td>
-                        <td><?php echo !empty($signin->is_instructor) ? '<span style=\'color: #007cba; font-weight: bold;\'>Yes</span>' : ''; ?></td>
+                        <td>
+                            <form method="post" style="display:inline;">
+                                <input type="hidden" name="cfpew_update_instructor_id" value="<?php echo $signin->id; ?>">
+                                <input type="checkbox" name="is_instructor" value="1" <?php checked($signin->is_instructor, 1); ?> onchange="this.form.submit()">
+                            </form>
+                        </td>
                         <td>
                             <a href="?page=cfp-workshops-signins&action=delete&id=<?php echo $signin->id; ?>" 
                                class="button button-small" onclick="return confirm('Are you sure?')">Delete</a>
