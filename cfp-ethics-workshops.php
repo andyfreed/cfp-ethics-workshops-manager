@@ -173,7 +173,7 @@ function cfpew_admin_menu() {
         'CFP Workshops',
         'manage_options',
         'cfp-workshops',
-        'cfpew_workshops_page',
+        'cfpew_dashboard_page',
         'dashicons-welcome-learn-more',
         30
     );
@@ -296,7 +296,26 @@ function cfpew_workshops_page() {
                     </td>
                     <td><?php echo esc_html($workshop->instructor); ?></td>
                     <td><?php echo esc_html($workshop->attendees_count); ?></td>
-                    <td>$<?php echo number_format($workshop->invoice_amount, 2); ?></td>
+                    <td>
+                        <?php
+                        $invoice_sent = $workshop->invoice_sent;
+                        $invoice_unknown = isset($workshop->invoice_unknown) ? $workshop->invoice_unknown : 0;
+                        if ($invoice_sent) {
+                            echo '<span style="color: green; font-weight: bold;">' . esc_html($invoice_sent) . '</span>';
+                        } elseif ($invoice_unknown) {
+                            echo '<span style="color: orange; font-weight: bold;">Date Unknown</span>';
+                        } else {
+                            echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
+                        }
+                        ?>
+                        <form method="post" style="display:inline; margin-left:10px;">
+                            <input type="hidden" name="cfpew_invoice_unknown_id" value="<?php echo $workshop->id; ?>">
+                            <label style="font-size: 0.9em;">
+                                <input type="checkbox" name="invoice_unknown" value="1" <?php checked($invoice_unknown, 1); ?> onchange="this.form.submit()"> Invoice sent, date unknown
+                            </label>
+                        </form>
+                        <br>$<?php echo number_format($workshop->invoice_amount, 2); ?>
+                    </td>
                     <td>
                         <a href="?page=cfp-workshops-add&id=<?php echo $workshop->id; ?>" class="button button-small">Edit</a>
                         <a href="?page=cfp-workshops&action=delete&id=<?php echo $workshop->id; ?>" 
@@ -356,15 +375,12 @@ function cfpew_add_workshop_page() {
             'instructor_cfp_id' => sanitize_text_field($_POST['instructor_cfp_id']),
             'webinar_completed' => sanitize_text_field($_POST['webinar_completed']),
             'webinar_signin_link' => esc_url_raw($_POST['webinar_signin_link']),
-            'cfp_board_attest_form' => sanitize_text_field($_POST['cfp_board_attest_form']),
             'location' => sanitize_text_field($_POST['location']),
-            'initial_materials_sent' => !empty($_POST['initial_materials_sent']) ? sanitize_text_field($_POST['initial_materials_sent']) : null,
             'all_materials_sent' => !empty($_POST['all_materials_sent']) ? sanitize_text_field($_POST['all_materials_sent']) : null,
             'attendees_count' => intval($_POST['attendees_count']),
             'roster_received' => sanitize_text_field($_POST['roster_received']),
             'batch_number' => intval($_POST['batch_number']),
             'batch_date' => !empty($_POST['batch_date']) ? sanitize_text_field($_POST['batch_date']) : null,
-            'cfp_acknowledgment' => sanitize_text_field($_POST['cfp_acknowledgment']),
             'invoice_sent' => !empty($_POST['invoice_sent']) ? sanitize_text_field($_POST['invoice_sent']) : null,
             'invoice_amount' => floatval($_POST['invoice_amount']),
             'invoice_received' => !empty($_POST['invoice_received']) ? sanitize_text_field($_POST['invoice_received']) : null,
@@ -466,16 +482,6 @@ function cfpew_add_workshop_page() {
             
             <h2>Materials & Administrative</h2>
             <table class="form-table">
-                <tr>
-                    <th><label for="cfp_board_attest_form">CFP Board Acknowledgment Attest Form</label></th>
-                    <td><input type="text" name="cfp_board_attest_form" id="cfp_board_attest_form" class="regular-text" 
-                             value="<?php echo $workshop ? esc_attr($workshop->cfp_board_attest_form) : ''; ?>"></td>
-                </tr>
-                <tr>
-                    <th><label for="initial_materials_sent">Initial Materials Sent</label></th>
-                    <td><input type="date" name="initial_materials_sent" id="initial_materials_sent" class="regular-text" 
-                             value="<?php echo $workshop ? esc_attr($workshop->initial_materials_sent) : ''; ?>"></td>
-                </tr>
                 <tr>
                     <th><label for="all_materials_sent">All Materials Sent</label></th>
                     <td><input type="date" name="all_materials_sent" id="all_materials_sent" class="regular-text" 
@@ -1077,15 +1083,12 @@ function cfpew_import_csv($file_path) {
             'instructor_cfp_id' => isset($data[8]) ? $data[8] : '',
             'webinar_completed' => isset($data[9]) ? $data[9] : '',
             'webinar_signin_link' => isset($data[10]) ? $data[10] : '',
-            'cfp_board_attest_form' => isset($data[11]) ? $data[11] : '',
             'location' => isset($data[12]) ? $data[12] : '',
-            'initial_materials_sent' => !empty($data[13]) ? date('Y-m-d', strtotime($data[13])) : null,
             'all_materials_sent' => !empty($data[14]) ? date('Y-m-d', strtotime($data[14])) : null,
             'attendees_count' => isset($data[15]) ? intval($data[15]) : 0,
             'roster_received' => isset($data[16]) ? $data[16] : '',
             'batch_number' => isset($data[17]) ? intval($data[17]) : 0,
             'batch_date' => !empty($data[18]) ? date('Y-m-d', strtotime($data[18])) : null,
-            'cfp_acknowledgment' => isset($data[19]) ? $data[19] : '',
             'invoice_sent' => !empty($data[20]) ? date('Y-m-d', strtotime($data[20])) : null,
             'invoice_amount' => isset($data[21]) ? floatval($data[21]) : 0,
             'invoice_received' => !empty($data[22]) ? date('Y-m-d', strtotime($data[22])) : null,
@@ -3821,4 +3824,18 @@ function cfpew_admin_notices() {
         <?php
         delete_transient('cfpew_activation_notice');
     }
+}
+
+// Handle invoice_unknown checkbox submission on All Workshops page
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cfpew_invoice_unknown_id'])) {
+    $workshop_id = intval($_POST['cfpew_invoice_unknown_id']);
+    $invoice_unknown = isset($_POST['invoice_unknown']) ? 1 : 0;
+    $wpdb->update(
+        $table_name,
+        array('invoice_unknown' => $invoice_unknown),
+        array('id' => $workshop_id)
+    );
+    // Refresh to avoid resubmission
+    echo '<script>window.location = window.location.href.split("?")[0] + window.location.search.replace(/&?cfpew_invoice_unknown_id=[^&]*/g, "");</script>';
+    exit;
 }
