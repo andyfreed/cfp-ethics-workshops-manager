@@ -539,6 +539,7 @@ function cfpew_add_workshop_page() {
             
             <h2>Billing</h2>
             <table class="form-table">
+                <!-- Keep only the following fields: -->
                 <tr>
                     <th><label for="invoice_sent_flag">Invoice Sent?</label></th>
                     <td>
@@ -553,20 +554,6 @@ function cfpew_add_workshop_page() {
                         <span class="description">Optional: Enter the date the invoice was sent.</span>
                     </td>
                 </tr>
-                <tr>
-                    <th><label for="invoice_amount">Invoice Amount ($)</label></th>
-                    <td>
-                        <?php
-                        $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
-                        $attendee_count = '';
-                        $calculated_invoice_amount = '';
-                        if ($workshop && isset($workshop->id)) {
-                            $attendee_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d AND (is_instructor = 0 OR is_instructor IS NULL)", $workshop->id));
-                            $calculated_invoice_amount = min($attendee_count * 15, 1000);
-                        }
-                        $override = $workshop && !empty($workshop->invoice_amount_override);
-                        $invoice_amount_value = $override ? $workshop->invoice_amount : $calculated_invoice_amount;
-                        ?>
                 <tr>
                     <th><label for="invoice_amount">Invoice Amount ($)</label></th>
                     <td>
