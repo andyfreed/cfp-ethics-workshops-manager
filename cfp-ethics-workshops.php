@@ -289,12 +289,6 @@ function cfpew_workshops_page() {
                             echo '<span style="color: red; font-weight: bold;">Not Sent</span>';
                         }
                         ?>
-                        <form method="post" style="display:inline; margin-left:10px;">
-                            <input type="hidden" name="cfpew_invoice_unknown_id" value="<?php echo $workshop->id; ?>">
-                            <label style="font-size: 0.9em;">
-                                <input type="checkbox" name="invoice_unknown" value="1" <?php checked($invoice_unknown, 1); ?> onchange="this.form.submit()"> Invoice sent, date unknown
-                            </label>
-                        </form>
                         <br>$<?php echo number_format($workshop->invoice_amount, 2); ?>
                     </td>
                     <td>
