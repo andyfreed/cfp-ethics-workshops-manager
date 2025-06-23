@@ -169,11 +169,11 @@ function cfpew_handle_early_downloads() {
 add_action('admin_menu', 'cfpew_admin_menu');
 function cfpew_admin_menu() {
     add_menu_page(
-        'CFP Ethics Workshops',
-        'CFP Workshops',
+        'Dashboard',
+        'Dashboard',
         'manage_options',
         'cfp-workshops',
-        'cfpew_dashboard_page',
+        'cfpew_workshops_page',
         'dashicons-welcome-learn-more',
         30
     );
