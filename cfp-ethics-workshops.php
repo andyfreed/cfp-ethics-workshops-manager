@@ -170,6 +170,18 @@ function cfpew_handle_early_downloads() {
         cfpew_generate_invoice_pdf(intval($_GET['id']));
         exit;
     }
+    
+    // Handle certificate generation
+    if ($page == 'cfp-workshops-signins' && isset($_GET['action'])) {
+        if ($_GET['action'] == 'generate_certificate' && isset($_GET['signin_id'])) {
+            cfpew_generate_certificate_pdf(intval($_GET['signin_id']));
+            exit;
+        }
+        if ($_GET['action'] == 'bulk_certificates' && isset($_GET['workshop_id'])) {
+            cfpew_generate_bulk_certificates(intval($_GET['workshop_id']));
+            exit;
+        }
+    }
 }
 
 // Add admin menu
@@ -710,6 +722,8 @@ function cfpew_signins_page() {
                 <?php if ($workshop_id): ?>
                     <a href="?page=cfp-workshops-signins&action=export&workshop_id=<?php echo $workshop_id; ?>" 
                        class="button">Export Sign-ins to CSV</a>
+                    <a href="?page=cfp-workshops-signins&action=bulk_certificates&workshop_id=<?php echo $workshop_id; ?>" 
+                       class="button button-primary">📜 Generate All Certificates</a>
                 <?php else: ?>
                     <a href="?page=cfp-workshops-signins&action=export" 
                        class="button">Export All Sign-ins to CSV</a>
@@ -749,6 +763,8 @@ function cfpew_signins_page() {
                             </form>
                         </td>
                         <td>
+                            <a href="?page=cfp-workshops-signins&action=generate_certificate&signin_id=<?php echo $signin->id; ?>" 
+                               class="button button-primary button-small">📜 Certificate</a>
                             <a href="?page=cfp-workshops-signins&action=delete&id=<?php echo $signin->id; ?>" 
                                class="button button-small" onclick="return confirm('Are you sure?')">Delete</a>
                         </td>
@@ -3937,4 +3953,259 @@ function cfpew_generate_invoice_pdf($workshop_id) {
     $pdf->Output($output_path, 'F');
     cfpew_download_file($output_path, 'Invoice-' . $workshop->customer . '-' . $workshop->seminar_date . '.pdf');
     exit;
+}
+
+// Generate certificate PDF for individual sign-in
+function cfpew_generate_certificate_pdf($signin_id) {
+    global $wpdb;
+    
+    // Get sign-in data with workshop info
+    $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+    $workshops_table = $wpdb->prefix . 'cfp_workshops';
+    
+    $signin = $wpdb->get_row($wpdb->prepare("
+        SELECT s.*, w.seminar_date, w.customer, w.instructor, w.location 
+        FROM $signins_table s 
+        LEFT JOIN $workshops_table w ON s.workshop_id = w.id 
+        WHERE s.id = %d
+    ", $signin_id));
+    
+    if (!$signin) {
+        wp_die('Sign-in record not found');
+    }
+    
+    // Skip certificate for instructors
+    if ($signin->is_instructor) {
+        wp_die('Certificates are not generated for instructors');
+    }
+    
+    // Include TCPDF
+    cfpew_include_pdf_libraries();
+    if (!class_exists('TCPDF')) {
+        wp_die('TCPDF not available');
+    }
+    
+    // Create output directory
+    $upload_dir = wp_upload_dir();
+    $output_dir = $upload_dir['basedir'] . '/cfp-certificates/';
+    if (!file_exists($output_dir)) {
+        wp_mkdir_p($output_dir);
+    }
+    
+    $output_filename = 'certificate-' . $signin->id . '-' . uniqid() . '.pdf';
+    $output_path = $output_dir . $output_filename;
+    
+    // Create certificate PDF
+    cfpew_create_certificate_pdf($signin, $output_path);
+    
+    // Download the certificate
+    $download_name = 'Certificate-' . $signin->first_name . '-' . $signin->last_name . '-' . $signin->seminar_date . '.pdf';
+    cfpew_download_file($output_path, $download_name);
+    exit;
+}
+
+// Generate bulk certificates for entire workshop
+function cfpew_generate_bulk_certificates($workshop_id) {
+    global $wpdb;
+    
+    // Get workshop data
+    $workshops_table = $wpdb->prefix . 'cfp_workshops';
+    $workshop = $wpdb->get_row($wpdb->prepare("SELECT * FROM $workshops_table WHERE id = %d", $workshop_id));
+    
+    if (!$workshop) {
+        wp_die('Workshop not found');
+    }
+    
+    // Get all non-instructor sign-ins for this workshop
+    $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+    $signins = $wpdb->get_results($wpdb->prepare("
+        SELECT s.*, w.seminar_date, w.customer, w.instructor, w.location 
+        FROM $signins_table s 
+        LEFT JOIN $workshops_table w ON s.workshop_id = w.id 
+        WHERE s.workshop_id = %d AND (s.is_instructor = 0 OR s.is_instructor IS NULL)
+        ORDER BY s.last_name, s.first_name
+    ", $workshop_id));
+    
+    if (empty($signins)) {
+        wp_die('No attendees found for this workshop (excluding instructors)');
+    }
+    
+    // Include TCPDF
+    cfpew_include_pdf_libraries();
+    if (!class_exists('TCPDF')) {
+        wp_die('TCPDF not available');
+    }
+    
+    // Create output directory
+    $upload_dir = wp_upload_dir();
+    $output_dir = $upload_dir['basedir'] . '/cfp-certificates/';
+    if (!file_exists($output_dir)) {
+        wp_mkdir_p($output_dir);
+    }
+    
+    // Create ZIP file for bulk download
+    $zip_filename = 'certificates-' . $workshop->seminar_date . '-' . sanitize_title($workshop->customer) . '-' . uniqid() . '.zip';
+    $zip_path = $output_dir . $zip_filename;
+    
+    $zip = new ZipArchive();
+    if ($zip->open($zip_path, ZipArchive::CREATE) !== TRUE) {
+        wp_die('Could not create ZIP file');
+    }
+    
+    // Generate certificate for each attendee
+    foreach ($signins as $signin) {
+        $cert_filename = 'certificate-' . sanitize_title($signin->first_name . '-' . $signin->last_name) . '.pdf';
+        $cert_path = $output_dir . $cert_filename;
+        
+        // Create individual certificate
+        cfpew_create_certificate_pdf($signin, $cert_path);
+        
+        // Add to ZIP
+        $zip->addFile($cert_path, $cert_filename);
+    }
+    
+    $zip->close();
+    
+    // Clean up individual certificate files
+    foreach ($signins as $signin) {
+        $cert_filename = 'certificate-' . sanitize_title($signin->first_name . '-' . $signin->last_name) . '.pdf';
+        $cert_path = $output_dir . $cert_filename;
+        if (file_exists($cert_path)) {
+            unlink($cert_path);
+        }
+    }
+    
+    // Download the ZIP file
+    $download_name = 'Certificates-' . $workshop->customer . '-' . $workshop->seminar_date . '.zip';
+    cfpew_download_file($zip_path, $download_name);
+    exit;
+}
+
+// Create certificate PDF matching the provided design
+function cfpew_create_certificate_pdf($signin, $output_path) {
+    // Create new PDF document
+    $pdf = new TCPDF('P', 'mm', 'LETTER', true, 'UTF-8', false);
+    
+    // Set document information
+    $pdf->SetCreator('CFP Ethics Workshops');
+    $pdf->SetAuthor('Beacon Hill Financial Educators, Inc.');
+    $pdf->SetTitle('Certificate of Completion');
+    $pdf->SetSubject('CFP Ethics Workshop Certificate');
+    
+    // Remove default header/footer
+    $pdf->setPrintHeader(false);
+    $pdf->setPrintFooter(false);
+    
+    // Set margins
+    $pdf->SetMargins(15, 15, 15);
+    $pdf->SetAutoPageBreak(false, 0);
+    
+    // Add a page
+    $pdf->AddPage();
+    
+    // Set colors
+    $green_color = array(76, 175, 80); // Green border color
+    
+    // Draw green border
+    $pdf->SetDrawColor($green_color[0], $green_color[1], $green_color[2]);
+    $pdf->SetLineWidth(2);
+    $pdf->Rect(10, 10, 195, 267, 'D'); // Border rectangle
+    
+    // Logo positioning and sizing
+    $logo_path = CFPEW_PLUGIN_PATH . 'logo-registered.png';
+    if (file_exists($logo_path)) {
+        // Center the logo horizontally
+        $logo_width = 40;
+        $logo_x = (210 - $logo_width) / 2; // Center on page
+        $pdf->Image($logo_path, $logo_x, 25, $logo_width);
+    }
+    
+    // Company name below logo
+    $pdf->SetFont('helvetica', '', 12);
+    $pdf->SetTextColor(0, 0, 0);
+    $pdf->SetXY(15, 70);
+    $pdf->Cell(0, 10, 'BEACON HILL', 0, 1, 'C');
+    $pdf->SetXY(15, 78);
+    $pdf->Cell(0, 10, 'FINANCIAL EDUCATORS', 0, 1, 'C');
+    
+    // Certificate of Completion title
+    $pdf->SetFont('helvetica', 'B', 24);
+    $pdf->SetTextColor(0, 0, 0);
+    $pdf->SetXY(15, 100);
+    $pdf->Cell(0, 15, 'Certificate of Completion', 0, 1, 'C');
+    
+    // "This certifies that" text
+    $pdf->SetFont('helvetica', '', 14);
+    $pdf->SetXY(15, 125);
+    $pdf->Cell(0, 10, 'This certifies that', 0, 1, 'C');
+    
+    // Participant name
+    $pdf->SetFont('helvetica', 'B', 18);
+    $pdf->SetXY(15, 140);
+    $participant_name = $signin->first_name . ' ' . $signin->last_name . ', CFP®';
+    $pdf->Cell(0, 12, $participant_name, 0, 1, 'C');
+    
+    // "has successfully completed:" text
+    $pdf->SetFont('helvetica', '', 14);
+    $pdf->SetXY(15, 160);
+    $pdf->Cell(0, 10, 'has successfully completed:', 0, 1, 'C');
+    
+    // Workshop title
+    $pdf->SetFont('helvetica', 'B', 16);
+    $pdf->SetXY(15, 180);
+    $pdf->Cell(0, 12, '1040 Workshop', 0, 1, 'C');
+    
+    // Workshop details
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->SetXY(15, 205);
+    
+    // Calculate course details
+    $bhfe_course_number = '496625'; // Static as shown in image
+    $cfp_individual_id = $signin->cfp_id;
+    $cfp_course_id = '332327'; // Static as shown in image
+    $completion_date = date('F j, Y', strtotime($signin->seminar_date));
+    $instructor_method = 'Self Study'; // Static as shown in image
+    $sponsor_info = 'Beacon Hill Financial Educators, Inc.';
+    $sponsor_number = '(CFP Board Sponsor #1008)'; // Static as shown in image
+    $author = 'Danny Santucci'; // Static as shown in image
+    $ce_hours = '18.5'; // Static as shown in image
+    
+    $details = array(
+        "BHFE Course Number: $bhfe_course_number",
+        "CFP Board Individual ID #: $cfp_individual_id",
+        "CFP Board Course ID #: $cfp_course_id",
+        "Date Completed: $completion_date",
+        "Instructional delivery method: $instructor_method",
+        "Sponsored by: $sponsor_info",
+        "$sponsor_number",
+        "Author: $author",
+        "Number of continuing professional education credit hours: $ce_hours"
+    );
+    
+    $y_position = 205;
+    foreach ($details as $detail) {
+        $pdf->SetXY(15, $y_position);
+        $pdf->Cell(0, 6, $detail, 0, 1, 'L');
+        $y_position += 6;
+    }
+    
+    // Signature section
+    $pdf->SetFont('helvetica', 'I', 12);
+    $pdf->SetXY(140, 250);
+    $pdf->Cell(50, 8, 'David H. Freed', 0, 1, 'L');
+    
+    // Signature line
+    $pdf->SetDrawColor(0, 0, 0);
+    $pdf->SetLineWidth(0.5);
+    $pdf->Line(140, 249, 190, 249);
+    
+    // Signature title
+    $pdf->SetFont('helvetica', '', 10);
+    $pdf->SetXY(140, 252);
+    $pdf->Cell(50, 5, 'Sponsor Signature', 0, 1, 'L');
+    $pdf->SetXY(140, 257);
+    $pdf->Cell(50, 5, 'David H. Freed, President', 0, 1, 'L');
+    
+    // Save the PDF
+    $pdf->Output($output_path, 'F');
 }
