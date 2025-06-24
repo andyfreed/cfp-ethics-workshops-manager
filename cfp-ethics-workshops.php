@@ -4167,8 +4167,8 @@ function cfpew_create_certificate_pdf($signin, $output_path) {
     $instructor_method = 'Self Study'; // Static as shown in image
     $sponsor_info = 'Beacon Hill Financial Educators, Inc.';
     $sponsor_number = '(CFP Board Sponsor #1008)'; // Static as shown in image
-    $author = 'Danny Santucci'; // Static as shown in image
-    $ce_hours = '18.5'; // Static as shown in image
+    $author = 'Certified Financial Planner Board of Standards'; // Updated author
+    $ce_hours = '2'; // Updated credit hours
     
     $details = array(
         "BHFE Course Number: $bhfe_course_number",
