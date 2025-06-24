@@ -4153,7 +4153,7 @@ function cfpew_create_certificate_pdf($signin, $output_path) {
     // Workshop title
     $pdf->SetFont('helvetica', 'B', 16);
     $pdf->SetXY(15, 180);
-    $pdf->Cell(0, 12, '1040 Workshop', 0, 1, 'C');
+    $pdf->Cell(0, 12, 'CFP Board Ethics Workshop', 0, 1, 'C');
     
     // Workshop details
     $pdf->SetFont('helvetica', '', 11);
