@@ -3921,50 +3921,81 @@ function cfpew_generate_invoice_pdf($workshop_id) {
     $pdf->SetAuthor('CFP Ethics Workshops');
     $pdf->SetTitle('Invoice');
     $pdf->AddPage();
-    // Logo
+    // Logo and Company/Contact Info Header
     $logo_path = CFPEW_PLUGIN_PATH . 'logo-registered.png';
     if (file_exists($logo_path)) {
-        $pdf->Image($logo_path, 15, 10, 40);
+        $pdf->Image($logo_path, 15, 12, 32); // Top left, slightly smaller
     }
-    // Company info under logo
-    $pdf->SetXY(15, 25 + 40); // 25 is logo Y, 40 is logo height
+    $pdf->SetXY(50, 12);
+    $pdf->SetFont('helvetica', 'B', 13);
+    $pdf->Cell(0, 7, 'Beacon Hill Financial Educators', 0, 1, 'L');
     $pdf->SetFont('helvetica', '', 11);
-    $pdf->MultiCell(0, 5, "Beacon Hill Financial Educators\n51A Middle Street\nNewburyport, MA 01950", 0, 'L');
-    $pdf->SetY(60);
-    $pdf->SetFont('helvetica', 'B', 20);
-    $pdf->Cell(0, 15, 'Invoice', 0, 1, 'R');
-    $pdf->SetFont('helvetica', '', 12);
-    $pdf->Ln(10);
-    $pdf->Cell(0, 10, 'Date: ' . date('F j, Y'), 0, 1, 'R');
-    $pdf->Ln(10);
-    $pdf->SetFont('helvetica', '', 12);
-    $pdf->MultiCell(0, 8, "Workshop: {$workshop->customer}\nDate: {$workshop->seminar_date}\nLocation: {$workshop->location}\nInstructor: {$workshop->instructor}", 0, 'L');
-    $pdf->Ln(10);
-    // Line item table
+    $pdf->SetX(50);
+    $pdf->Cell(0, 6, '51A Middle Street', 0, 1, 'L');
+    $pdf->SetX(50);
+    $pdf->Cell(0, 6, 'Newburyport, MA 01950', 0, 1, 'L');
+    $pdf->SetX(50);
+    $pdf->Cell(0, 6, 'contact@bhfe.com | 1-800-588-7039', 0, 1, 'L');
+    // Line under header
+    $pdf->SetLineWidth(0.5);
+    $pdf->SetDrawColor(180,180,180);
+    $pdf->Line(15, 35, 195, 35);
+    $pdf->SetY(38);
+    // Invoice Title (centered)
+    $pdf->SetFont('helvetica', 'B', 22);
+    $pdf->Cell(0, 12, 'INVOICE', 0, 1, 'C');
+    // Date (top right)
+    $pdf->SetXY(140, 38);
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->Cell(0, 8, 'Date: ' . date('F j, Y'), 0, 1, 'R');
+    $pdf->Ln(2);
+    // Workshop Info Section
     $pdf->SetFont('helvetica', 'B', 12);
-    $pdf->Cell(80, 8, 'Description', 1, 0, 'C');
-    $pdf->Cell(30, 8, 'Quantity', 1, 0, 'C');
-    $pdf->Cell(30, 8, 'Unit Price', 1, 0, 'C');
-    $pdf->Cell(40, 8, 'Total', 1, 1, 'C');
+    $pdf->Cell(0, 8, 'Workshop Information', 0, 1, 'L');
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->Cell(35, 7, 'Workshop:', 0, 0, 'L');
+    $pdf->Cell(80, 7, $workshop->customer, 0, 0, 'L');
+    $pdf->Cell(25, 7, 'Instructor:', 0, 0, 'L');
+    $pdf->Cell(0, 7, $workshop->instructor, 0, 1, 'L');
+    $pdf->Cell(35, 7, 'Date:', 0, 0, 'L');
+    $pdf->Cell(80, 7, $workshop->seminar_date, 0, 0, 'L');
+    $pdf->Cell(25, 7, 'Location:', 0, 0, 'L');
+    $pdf->Cell(0, 7, $workshop->location, 0, 1, 'L');
+    $pdf->Ln(6);
+    // Line item table with styling
+    $pdf->SetFont('helvetica', 'B', 12);
+    // Table header with background
+    $pdf->SetFillColor(230, 230, 230);
+    $pdf->Cell(80, 9, 'Description', 1, 0, 'C', 1);
+    $pdf->Cell(30, 9, 'Quantity', 1, 0, 'C', 1);
+    $pdf->Cell(30, 9, 'Unit Price', 1, 0, 'C', 1);
+    $pdf->Cell(40, 9, 'Total', 1, 1, 'C', 1);
     $pdf->SetFont('helvetica', '', 12);
-    $pdf->Cell(80, 8, 'CFP Ethics Workshop', 1, 0, 'L');
-    $pdf->Cell(30, 8, $attendee_count, 1, 0, 'C');
-    $pdf->Cell(30, 8, '$15.00', 1, 0, 'C');
+    $pdf->Cell(80, 9, 'CFP Ethics Workshop', 1, 0, 'L');
+    $pdf->Cell(30, 9, $attendee_count, 1, 0, 'R');
+    $pdf->Cell(30, 9, '$15.00', 1, 0, 'R');
     $line_total = min($attendee_count * 15, 1000);
-    $pdf->Cell(40, 8, '$' . number_format($line_total, 2), 1, 1, 'C');
+    $pdf->Cell(40, 9, '$' . number_format($line_total, 2), 1, 1, 'R');
     $pdf->Ln(5);
-    // Total summary
+    // Total summary with better alignment
     $pdf->SetX(120);
     $pdf->SetFont('helvetica', '', 11);
     $pdf->Cell(40, 8, 'Subtotal:', 0, 0, 'R');
     $pdf->Cell(30, 8, '$' . number_format($line_total, 2), 0, 1, 'R');
     $pdf->SetX(120);
     $pdf->SetFont('helvetica', 'B', 12);
-    $pdf->Cell(40, 8, 'Total:', 0, 0, 'R');
-    $pdf->Cell(30, 8, '$' . number_format($invoice_amount, 2), 0, 1, 'R');
-    $pdf->Ln(10);
+    $pdf->Cell(40, 9, 'Total:', 0, 0, 'R');
+    $pdf->Cell(30, 9, '$' . number_format($invoice_amount, 2), 0, 1, 'R');
+    // Horizontal line above thank you
+    $pdf->Ln(8);
+    $pdf->SetDrawColor(200, 200, 200);
+    $pdf->SetLineWidth(0.3);
+    $pdf->Line(15, $pdf->GetY(), 195, $pdf->GetY());
+    $pdf->Ln(4);
     $pdf->SetFont('helvetica', '', 10);
-    $pdf->MultiCell(0, 8, 'Thank you for your business!', 0, 'L');
+    $pdf->SetTextColor(80, 80, 80);
+    $pdf->MultiCell(0, 8, 'Thank you for your business!', 0, 'C');
+    $pdf->SetTextColor(0, 0, 0);
     $pdf->Output($output_path, 'F');
     cfpew_download_file($output_path, 'Invoice-' . $workshop->customer . '-' . $workshop->seminar_date . '.pdf');
     exit;
