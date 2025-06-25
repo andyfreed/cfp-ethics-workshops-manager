@@ -171,6 +171,12 @@ function cfpew_handle_early_downloads() {
         exit;
     }
     
+    // Handle email invoice
+    if ($page == 'cfp-workshops' && isset($_GET['action']) && $_GET['action'] == 'email_invoice' && isset($_GET['id'])) {
+        cfpew_email_invoice_pdf(intval($_GET['id']));
+        exit;
+    }
+    
     // Handle certificate generation
     if ($page == 'cfp-workshops-signins' && isset($_GET['action'])) {
         if ($_GET['action'] == 'generate_certificate' && isset($_GET['signin_id'])) {
@@ -245,6 +251,14 @@ function cfpew_workshops_page() {
     if (isset($_GET['action']) && $_GET['action'] == 'delete' && isset($_GET['id'])) {
         $wpdb->delete($table_name, array('id' => intval($_GET['id'])));
         echo '<div class="notice notice-success"><p>Workshop deleted successfully!</p></div>';
+    }
+    
+    // Show email notifications
+    if (isset($_GET['email_sent'])) {
+        echo '<div class="notice notice-success is-dismissible"><p><strong>✅ Invoice emailed successfully!</strong> The invoice has been sent to the workshop contact.</p></div>';
+    }
+    if (isset($_GET['email_error'])) {
+        echo '<div class="notice notice-error is-dismissible"><p><strong>❌ Email failed!</strong> There was an error sending the invoice. Please try again or contact support.</p></div>';
     }
     
     // Pagination
@@ -346,6 +360,10 @@ function cfpew_workshops_page() {
                         <a href="?page=cfp-workshops&action=generate_materials&id=<?php echo $workshop->id; ?>" 
                            class="button button-primary button-small">📄 Generate Materials</a>
                         <a href="?page=cfp-workshops&action=generate_invoice&id=<?php echo $workshop->id; ?>" class="button button-secondary button-small">🧾 Generate Invoice PDF</a>
+                        <?php if (!empty($workshop->email)): ?>
+                        <a href="?page=cfp-workshops&action=email_invoice&id=<?php echo $workshop->id; ?>" 
+                           class="button button-secondary button-small" onclick="return confirm('Email invoice to <?php echo esc_attr($workshop->contact_name ?: $workshop->email); ?>?')">📧 Email Invoice</a>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -3962,6 +3980,12 @@ function cfpew_generate_invoice_pdf($workshop_id) {
     $pdf->Cell(80, 8, $workshop->seminar_date, 0, 0, 'L');
     $pdf->Cell(25, 8, 'Location:', 0, 0, 'L');
     $pdf->Cell(0, 8, $workshop->location, 0, 1, 'L');
+    if (!empty($workshop->contact_name)) {
+        $pdf->Cell(35, 8, 'Contact:', 0, 0, 'L');
+        $pdf->Cell(80, 8, $workshop->contact_name, 0, 0, 'L');
+        $pdf->Cell(25, 8, 'Email:', 0, 0, 'L');
+        $pdf->Cell(0, 8, $workshop->email, 0, 1, 'L');
+    }
     $pdf->Ln(12);
     // Line item table with styling
     $pdf->SetFont('helvetica', 'B', 12);
@@ -3996,9 +4020,224 @@ function cfpew_generate_invoice_pdf($workshop_id) {
     $pdf->SetFont('helvetica', '', 10);
     $pdf->SetTextColor(80, 80, 80);
     $pdf->MultiCell(0, 8, 'Thank you for your business!', 0, 'C');
+    
+    // Credit reporting information
+    if (!empty($workshop->batch_number) || !empty($workshop->batch_date)) {
+        $pdf->Ln(8);
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->Cell(0, 6, 'Credit Reporting Information', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetTextColor(80, 80, 80);
+        if (!empty($workshop->batch_number)) {
+            $pdf->Cell(0, 5, 'Credits reported in Batch #' . $workshop->batch_number, 0, 1, 'L');
+        }
+        if (!empty($workshop->batch_date)) {
+            $pdf->Cell(0, 5, 'Credits reported on: ' . date('F j, Y', strtotime($workshop->batch_date)), 0, 1, 'L');
+        }
+    }
+    
     $pdf->SetTextColor(0, 0, 0);
     $pdf->Output($output_path, 'F');
     cfpew_download_file($output_path, 'Invoice-' . $workshop->customer . '-' . $workshop->seminar_date . '.pdf');
+    exit;
+}
+
+// Email invoice PDF to workshop contact
+function cfpew_email_invoice_pdf($workshop_id) {
+    global $wpdb;
+    $workshop = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}cfp_workshops WHERE id = %d", $workshop_id));
+    if (!$workshop) wp_die('Workshop not found');
+    
+    if (empty($workshop->email)) {
+        wp_die('No email address found for this workshop contact');
+    }
+    
+    $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
+    $attendee_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $signins_table WHERE workshop_id = %d AND (is_instructor = 0 OR is_instructor IS NULL)", $workshop->id));
+    $invoice_amount = min($attendee_count * 15, 1000);
+    if (isset($workshop->invoice_amount_override) && $workshop->invoice_amount_override) {
+        $invoice_amount = $workshop->invoice_amount;
+    }
+    
+    // Include TCPDF
+    cfpew_include_pdf_libraries();
+    if (!class_exists('TCPDF')) wp_die('TCPDF not available');
+    
+    $upload_dir = wp_upload_dir();
+    $output_dir = $upload_dir['basedir'] . '/cfp-invoices/';
+    if (!file_exists($output_dir)) wp_mkdir_p($output_dir);
+    $output_filename = 'invoice-' . $workshop->id . '-' . uniqid() . '.pdf';
+    $output_path = $output_dir . $output_filename;
+    
+    // Generate the same PDF as the download version
+    $pdf = new TCPDF();
+    $pdf->SetCreator('CFP Ethics Workshops');
+    $pdf->SetAuthor('CFP Ethics Workshops');
+    $pdf->SetTitle('Invoice');
+    $pdf->AddPage();
+    
+    // Logo and Company/Contact Info Header
+    $logo_path = CFPEW_PLUGIN_PATH . 'logo-registered.png';
+    if (file_exists($logo_path)) {
+        $pdf->Image($logo_path, 15, 20, 32);
+    }
+    $pdf->SetXY(50, 20);
+    $pdf->SetFont('helvetica', 'B', 13);
+    $pdf->Cell(0, 8, 'Beacon Hill Financial Educators', 0, 1, 'L');
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->SetX(50);
+    $pdf->Cell(0, 7, '51A Middle Street', 0, 1, 'L');
+    $pdf->SetX(50);
+    $pdf->Cell(0, 7, 'Newburyport, MA 01950', 0, 1, 'L');
+    $pdf->SetX(50);
+    $pdf->Cell(0, 7, 'contact@bhfe.com | 1-800-588-7039', 0, 1, 'L');
+    
+    // Line under header
+    $pdf->SetLineWidth(0.5);
+    $pdf->SetDrawColor(180,180,180);
+    $pdf->Line(15, 50, 195, 50);
+    $pdf->SetY(55);
+    
+    // Invoice Title
+    $pdf->SetFont('helvetica', 'B', 22);
+    $pdf->Cell(0, 15, 'INVOICE', 0, 1, 'C');
+    
+    // Date
+    $pdf->SetXY(140, 55);
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->Cell(0, 8, 'Date: ' . date('F j, Y'), 0, 1, 'R');
+    $pdf->Ln(8);
+    
+    // Workshop Info Section
+    $pdf->SetFont('helvetica', 'B', 12);
+    $pdf->Cell(0, 10, 'Workshop Information', 0, 1, 'L');
+    $pdf->Ln(3);
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->Cell(35, 8, 'Workshop:', 0, 0, 'L');
+    $pdf->Cell(80, 8, $workshop->customer, 0, 0, 'L');
+    $pdf->Cell(25, 8, 'Instructor:', 0, 0, 'L');
+    $pdf->Cell(0, 8, $workshop->instructor, 0, 1, 'L');
+    $pdf->Cell(35, 8, 'Date:', 0, 0, 'L');
+    $pdf->Cell(80, 8, $workshop->seminar_date, 0, 0, 'L');
+    $pdf->Cell(25, 8, 'Location:', 0, 0, 'L');
+    $pdf->Cell(0, 8, $workshop->location, 0, 1, 'L');
+    if (!empty($workshop->contact_name)) {
+        $pdf->Cell(35, 8, 'Contact:', 0, 0, 'L');
+        $pdf->Cell(80, 8, $workshop->contact_name, 0, 0, 'L');
+        $pdf->Cell(25, 8, 'Email:', 0, 0, 'L');
+        $pdf->Cell(0, 8, $workshop->email, 0, 1, 'L');
+    }
+    $pdf->Ln(12);
+    
+    // Line item table
+    $pdf->SetFont('helvetica', 'B', 12);
+    $pdf->SetFillColor(230, 230, 230);
+    $pdf->Cell(80, 9, 'Description', 1, 0, 'C', 1);
+    $pdf->Cell(30, 9, 'Quantity', 1, 0, 'C', 1);
+    $pdf->Cell(30, 9, 'Unit Price', 1, 0, 'C', 1);
+    $pdf->Cell(40, 9, 'Total', 1, 1, 'C', 1);
+    $pdf->SetFont('helvetica', '', 12);
+    $pdf->Cell(80, 9, 'CFP Ethics Workshop', 1, 0, 'L');
+    $pdf->Cell(30, 9, $attendee_count, 1, 0, 'R');
+    $pdf->Cell(30, 9, '$15.00', 1, 0, 'R');
+    $line_total = min($attendee_count * 15, 1000);
+    $pdf->Cell(40, 9, '$' . number_format($line_total, 2), 1, 1, 'R');
+    $pdf->Ln(10);
+    
+    // Total summary
+    $pdf->SetX(120);
+    $pdf->SetFont('helvetica', '', 11);
+    $pdf->Cell(40, 9, 'Subtotal:', 0, 0, 'R');
+    $pdf->Cell(30, 9, '$' . number_format($line_total, 2), 0, 1, 'R');
+    $pdf->SetX(120);
+    $pdf->SetFont('helvetica', 'B', 12);
+    $pdf->Cell(40, 10, 'Total:', 0, 0, 'R');
+    $pdf->Cell(30, 10, '$' . number_format($invoice_amount, 2), 0, 1, 'R');
+    
+    // Thank you message
+    $pdf->Ln(15);
+    $pdf->SetDrawColor(200, 200, 200);
+    $pdf->SetLineWidth(0.3);
+    $pdf->Line(15, $pdf->GetY(), 195, $pdf->GetY());
+    $pdf->Ln(4);
+    $pdf->SetFont('helvetica', '', 10);
+    $pdf->SetTextColor(80, 80, 80);
+    $pdf->MultiCell(0, 8, 'Thank you for your business!', 0, 'C');
+    
+    // Credit reporting information
+    if (!empty($workshop->batch_number) || !empty($workshop->batch_date)) {
+        $pdf->Ln(8);
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->Cell(0, 6, 'Credit Reporting Information', 0, 1, 'L');
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetTextColor(80, 80, 80);
+        if (!empty($workshop->batch_number)) {
+            $pdf->Cell(0, 5, 'Credits reported in Batch #' . $workshop->batch_number, 0, 1, 'L');
+        }
+        if (!empty($workshop->batch_date)) {
+            $pdf->Cell(0, 5, 'Credits reported on: ' . date('F j, Y', strtotime($workshop->batch_date)), 0, 1, 'L');
+        }
+    }
+    
+    $pdf->SetTextColor(0, 0, 0);
+    $pdf->Output($output_path, 'F');
+    
+    // Prepare email
+    $to = $workshop->email;
+    $subject = 'Invoice for CFP Ethics Workshop - ' . $workshop->customer . ' (' . $workshop->seminar_date . ')';
+    $contact_name = !empty($workshop->contact_name) ? $workshop->contact_name : 'Workshop Contact';
+    
+    $message = "Dear {$contact_name},\n\n";
+    $message .= "Please find attached the invoice for the CFP Ethics Workshop:\n\n";
+    $message .= "Workshop: {$workshop->customer}\n";
+    $message .= "Date: {$workshop->seminar_date}\n";
+    $message .= "Location: {$workshop->location}\n";
+    $message .= "Instructor: {$workshop->instructor}\n";
+    $message .= "Attendees: {$attendee_count}\n";
+    $message .= "Invoice Amount: $" . number_format($invoice_amount, 2) . "\n\n";
+    
+    if (!empty($workshop->batch_number) || !empty($workshop->batch_date)) {
+        $message .= "Credit Reporting Information:\n";
+        if (!empty($workshop->batch_number)) {
+            $message .= "- Credits reported in Batch #{$workshop->batch_number}\n";
+        }
+        if (!empty($workshop->batch_date)) {
+            $message .= "- Credits reported on: " . date('F j, Y', strtotime($workshop->batch_date)) . "\n";
+        }
+        $message .= "\n";
+    }
+    
+    $message .= "If you have any questions about this invoice, please contact us at contact@bhfe.com or 1-800-588-7039.\n\n";
+    $message .= "Thank you for your business!\n\n";
+    $message .= "Best regards,\n";
+    $message .= "Beacon Hill Financial Educators\n";
+    $message .= "51A Middle Street\n";
+    $message .= "Newburyport, MA 01950\n";
+    $message .= "contact@bhfe.com | 1-800-588-7039";
+    
+    $headers = array(
+        'From: Beacon Hill Financial Educators <contact@bhfe.com>',
+        'Reply-To: contact@bhfe.com',
+        'Content-Type: text/plain; charset=UTF-8'
+    );
+    
+    $attachments = array($output_path);
+    
+    // Send email
+    $sent = wp_mail($to, $subject, $message, $headers, $attachments);
+    
+    // Clean up the temporary file
+    if (file_exists($output_path)) {
+        unlink($output_path);
+    }
+    
+    if ($sent) {
+        wp_redirect(add_query_arg('email_sent', '1', wp_get_referer()));
+    } else {
+        wp_redirect(add_query_arg('email_error', '1', wp_get_referer()));
+    }
     exit;
 }
 
