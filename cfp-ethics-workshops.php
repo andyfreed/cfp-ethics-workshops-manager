@@ -17,6 +17,26 @@ if (!defined('ABSPATH')) {
 define('CFPEW_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('CFPEW_PLUGIN_URL', plugin_dir_url(__FILE__));
 
+// Centralized debug logging (disabled by default in production)
+if (!defined('CFPEW_DEBUG_LOGGING')) {
+    define('CFPEW_DEBUG_LOGGING', false);
+}
+
+function cfpew_should_log() {
+    // Allow enabling via WP option if needed without code deploy
+    $option_enabled = function_exists('get_option') ? (bool) get_option('cfpew_debug_logging', false) : false;
+    return (defined('CFPEW_DEBUG_LOGGING') && CFPEW_DEBUG_LOGGING) || $option_enabled;
+}
+
+function cfpew_log($message) {
+    if (!cfpew_should_log()) {
+        return;
+    }
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('CFP Workshop: ' . $message);
+    }
+}
+
 // Activation hook
 register_activation_hook(__FILE__, 'cfpew_activate');
 function cfpew_activate() {
@@ -1505,31 +1525,31 @@ function cfpew_templates_page() {
 
 // Handle template upload
 function cfpew_handle_template_upload() {
-    // Log upload attempt
-    error_log('CFP Workshop: Template upload attempt started');
+    // Log upload attempt (gated)
+    cfpew_log('Template upload attempt started');
     
     if (!isset($_POST['cfpew_template_nonce']) || !wp_verify_nonce($_POST['cfpew_template_nonce'], 'cfpew_upload_template')) {
-        error_log('CFP Workshop: Nonce verification failed');
+        cfpew_log('Nonce verification failed');
         echo '<div class="notice notice-error"><p>Security check failed. Please try again.</p></div>';
         return;
     }
     
-    error_log('CFP Workshop: Nonce verification passed');
+    cfpew_log('Nonce verification passed');
     
     // Check if file was uploaded
     if (!isset($_FILES['template_file'])) {
-        error_log('CFP Workshop: No file in $_FILES array');
+        cfpew_log('No file in $_FILES array');
         echo '<div class="notice notice-error"><p>No file was selected for upload.</p></div>';
         return;
     }
     
     $uploaded_file = $_FILES['template_file'];
-    error_log('CFP Workshop: File upload details - ' . print_r($uploaded_file, true));
+    cfpew_log('File upload details - ' . print_r($uploaded_file, true));
     
     // Detailed error checking
     if ($uploaded_file['error'] !== UPLOAD_ERR_OK) {
         $error_message = cfpew_get_upload_error_message($uploaded_file['error']);
-        error_log('CFP Workshop: Upload error - Code: ' . $uploaded_file['error'] . ', Message: ' . $error_message);
+        cfpew_log('Upload error - Code: ' . $uploaded_file['error'] . ', Message: ' . $error_message);
         echo '<div class="notice notice-error"><p>' . $error_message . '</p></div>';
         return;
     }
@@ -1725,7 +1745,7 @@ function cfpew_generate_workshop_materials($workshop_id) {
             }
         } catch (Exception $e) {
             $has_errors = true;
-            error_log('CFP Workshop Materials Generation Error: ' . $e->getMessage());
+            cfpew_log('Materials Generation Error: ' . $e->getMessage());
         }
     }
     
@@ -1790,21 +1810,21 @@ function cfpew_generate_pdf_materials($workshop, $template) {
 
 // Generate PowerPoint materials
 function cfpew_generate_powerpoint_materials($workshop, $template) {
-    // DEBUG: Test logging first
-    error_log('=== CFP WORKSHOP DEBUG TEST - PowerPoint Generation Started ===');
-    error_log('Debug log location test - Current time: ' . current_time('mysql'));
-    error_log('WordPress debug log path: ' . (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG ? 'ENABLED' : 'DISABLED'));
+    // DEBUG (gated): Test logging
+    cfpew_log('=== PowerPoint Generation Started ===');
+    cfpew_log('Current time: ' . current_time('mysql'));
+    cfpew_log('WP_DEBUG_LOG: ' . (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG ? 'ENABLED' : 'DISABLED'));
     
     $field_mappings = cfpew_parse_field_mappings($template->field_mappings);
     $replacement_data = cfpew_get_workshop_replacement_data($workshop);
     
-    // DEBUG: Log the workshop data and replacement data for troubleshooting
-    error_log('PowerPoint Generation - Workshop ID: ' . $workshop->id);
-    error_log('PowerPoint Generation - Workshop customer: ' . $workshop->customer);
-    error_log('PowerPoint Generation - Workshop seminar_date: ' . $workshop->seminar_date);
-    error_log('PowerPoint Generation - Workshop instructor: ' . $workshop->instructor);
-    error_log('PowerPoint Generation - Replacement data: ' . print_r($replacement_data, true));
-    error_log('PowerPoint Generation - Field mappings: ' . print_r($field_mappings, true));
+    // DEBUG (gated): Log the workshop data and replacement data for troubleshooting
+    cfpew_log('PowerPoint Generation - Workshop ID: ' . $workshop->id);
+    cfpew_log('PowerPoint Generation - Workshop customer: ' . $workshop->customer);
+    cfpew_log('PowerPoint Generation - Workshop seminar_date: ' . $workshop->seminar_date);
+    cfpew_log('PowerPoint Generation - Workshop instructor: ' . $workshop->instructor);
+    cfpew_log('PowerPoint Generation - Replacement data: ' . print_r($replacement_data, true));
+    cfpew_log('PowerPoint Generation - Field mappings: ' . print_r($field_mappings, true));
     
     $upload_dir = wp_upload_dir();
     $output_dir = $upload_dir['basedir'] . '/cfp-generated-materials/';
@@ -1961,7 +1981,7 @@ function cfpew_process_powerpoint_template($template_path, $output_path, $replac
         cfpew_remove_directory($temp_dir);
         
     } catch (Exception $e) {
-        error_log('PowerPoint processing error: ' . $e->getMessage());
+        cfpew_log('PowerPoint processing error: ' . $e->getMessage());
     }
     
     return false;
@@ -1976,16 +1996,16 @@ function cfpew_process_slide_xml($slide_file, $replacement_data) {
     $content = file_get_contents($slide_file);
     $original_content = $content;
     
-    // DEBUG: Log replacement data for troubleshooting
-    error_log('PowerPoint Processing - Available replacement data: ' . print_r($replacement_data, true));
-    error_log('PowerPoint Processing - Processing file: ' . $slide_file);
+    // DEBUG (gated): replacement data
+    cfpew_log('PowerPoint Processing - Available replacement data: ' . print_r($replacement_data, true));
+    cfpew_log('PowerPoint Processing - Processing file: ' . $slide_file);
     
     // DEBUG: Log what placeholders are actually in the file
     preg_match_all('/\{\{[^}]+\}\}/', $content, $found_placeholders);
     if (!empty($found_placeholders[0])) {
-        error_log('PowerPoint Processing - Placeholders found in file: ' . implode(', ', array_unique($found_placeholders[0])));
+        cfpew_log('PowerPoint Processing - Placeholders found in file: ' . implode(', ', array_unique($found_placeholders[0])));
     } else {
-        error_log('PowerPoint Processing - No {{placeholder}} patterns found in file');
+        cfpew_log('PowerPoint Processing - No {{placeholder}} patterns found in file');
     }
     
     // Also check for other common patterns
@@ -1994,13 +2014,13 @@ function cfpew_process_slide_xml($slide_file, $replacement_data) {
     preg_match_all('/%[^%]+%/', $content, $percent_signs);
     
     if (!empty($single_brace[0])) {
-        error_log('PowerPoint Processing - Single brace patterns found: ' . implode(', ', array_unique($single_brace[0])));
+        cfpew_log('PowerPoint Processing - Single brace patterns found: ' . implode(', ', array_unique($single_brace[0])));
     }
     if (!empty($square_brackets[0])) {
-        error_log('PowerPoint Processing - Square bracket patterns found: ' . implode(', ', array_unique($square_brackets[0])));
+        cfpew_log('PowerPoint Processing - Square bracket patterns found: ' . implode(', ', array_unique($square_brackets[0])));
     }
     if (!empty($percent_signs[0])) {
-        error_log('PowerPoint Processing - Percent sign patterns found: ' . implode(', ', array_unique($percent_signs[0])));
+        cfpew_log('PowerPoint Processing - Percent sign patterns found: ' . implode(', ', array_unique($percent_signs[0])));
     }
     
     $replacements_made = array();
@@ -2035,9 +2055,9 @@ function cfpew_process_slide_xml($slide_file, $replacement_data) {
     
     // DEBUG: Log what replacements were made
     if (!empty($replacements_made)) {
-        error_log('PowerPoint Processing - Replacements made: ' . implode(', ', $replacements_made));
+        cfpew_log('PowerPoint Processing - Replacements made: ' . implode(', ', $replacements_made));
     } else {
-        error_log('PowerPoint Processing - No replacements made in file: ' . $slide_file);
+        cfpew_log('PowerPoint Processing - No replacements made in file: ' . $slide_file);
     }
 
     if ($content !== $original_content) {
@@ -2743,8 +2763,8 @@ add_shortcode('cfp_signin', 'cfpew_signin_shortcode'); // Alias for easier use
 // Shortcode for workshop dashboard (commented out - using admin dashboard instead)
 // add_shortcode('cfp_workshop_dashboard', 'cfpew_dashboard_shortcode');
 
-// Debug: Log when shortcodes are registered
-error_log('CFP Workshop: Shortcodes registered - cfp_workshop_signin and cfp_signin');
+// Debug (gated): Log when shortcodes are registered
+cfpew_log('Shortcodes registered - cfp_workshop_signin and cfp_signin');
 function cfpew_signin_shortcode($atts) {
     global $wpdb;
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
@@ -3519,8 +3539,8 @@ function cfpew_dashboard_shortcode($atts) {
 add_action('admin_post_cfp_signin_submit', 'cfpew_process_signin');
 add_action('admin_post_nopriv_cfp_signin_submit', 'cfpew_process_signin');
 
-// Debug: Log when actions are registered
-error_log('CFP Workshop: Admin-post actions registered for cfp_signin_submit');
+// Debug (gated): Log when actions are registered
+cfpew_log('Admin-post actions registered for cfp_signin_submit');
 
 // Process public sign-in form submission
 function cfpew_process_signin() {
@@ -3528,12 +3548,12 @@ function cfpew_process_signin() {
     $signins_table = $wpdb->prefix . 'cfp_workshop_signins';
     $workshops_table = $wpdb->prefix . 'cfp_workshops';
     
-    // Enable debug logging for troubleshooting
-    error_log('CFP Workshop Sign-in: Form submitted with data: ' . print_r($_POST, true));
+    // Enable debug logging for troubleshooting (gated)
+    cfpew_log('Sign-in: Form submitted with data: ' . print_r($_POST, true));
     
     // Verify nonce for security
     if (!wp_verify_nonce($_POST['cfp_signin_nonce'], 'cfp_signin_nonce')) {
-        error_log('CFP Workshop Sign-in: ERROR - Nonce verification failed');
+        cfpew_log('Sign-in: ERROR - Nonce verification failed');
         wp_die('Security check failed');
     }
     
@@ -3542,7 +3562,7 @@ function cfpew_process_signin() {
         $workshop_date = sanitize_text_field($_POST['workshop_date']);
         $affiliation = sanitize_text_field($_POST['affiliation']);
         
-        error_log("CFP Workshop Sign-in: Looking for workshop on $workshop_date for $affiliation");
+        cfpew_log("Sign-in: Looking for workshop on $workshop_date for $affiliation");
         
         $workshop = $wpdb->get_row($wpdb->prepare(
             "SELECT id FROM $workshops_table 
@@ -3551,7 +3571,7 @@ function cfpew_process_signin() {
         ));
         
         if (!$workshop) {
-            error_log("CFP Workshop Sign-in: No existing workshop found, creating new one");
+            cfpew_log("Sign-in: No existing workshop found, creating new one");
             
             // Create a placeholder workshop if not found
             $insert_result = $wpdb->insert($workshops_table, array(
@@ -3563,15 +3583,15 @@ function cfpew_process_signin() {
             ));
             
             if ($insert_result === false) {
-                error_log('CFP Workshop Sign-in: Failed to create workshop: ' . $wpdb->last_error);
+                cfpew_log('Sign-in: Failed to create workshop: ' . $wpdb->last_error);
                 wp_die('Error creating workshop record. Please contact support. Error: ' . $wpdb->last_error);
             }
             
             $workshop_id = $wpdb->insert_id;
-            error_log("CFP Workshop Sign-in: Created new workshop with ID: $workshop_id");
+            cfpew_log("Sign-in: Created new workshop with ID: $workshop_id");
         } else {
             $workshop_id = $workshop->id;
-            error_log("CFP Workshop Sign-in: Found existing workshop with ID: $workshop_id");
+            cfpew_log("Sign-in: Found existing workshop with ID: $workshop_id");
         }
         
         // Validate required fields
@@ -3604,7 +3624,7 @@ function cfpew_process_signin() {
         
         if (!empty($missing_fields)) {
             $error_msg = 'Missing required fields: ' . implode(', ', $missing_fields) . '. Please go back and complete all required fields.';
-            error_log('CFP Workshop Sign-in: Validation failed - ' . $error_msg);
+            cfpew_log('Sign-in: Validation failed - ' . $error_msg);
             wp_die($error_msg);
         }
         
@@ -3616,7 +3636,7 @@ function cfpew_process_signin() {
         ));
         
         if ($existing) {
-            error_log("CFP Workshop Sign-in: Duplicate sign-in attempt for email $email in workshop $workshop_id");
+            cfpew_log("Sign-in: Duplicate sign-in attempt for email $email in workshop $workshop_id");
             $redirect_url = wp_get_referer() ? wp_get_referer() : home_url();
             wp_redirect(add_query_arg('signin_success', '1', $redirect_url));
             exit;
@@ -3642,19 +3662,19 @@ function cfpew_process_signin() {
             'completion_date' => current_time('mysql')
         );
         
-        error_log('CFP Workshop Sign-in: Attempting to insert sign-in data: ' . print_r($signin_data, true));
+        cfpew_log('Sign-in: Attempting to insert sign-in data: ' . print_r($signin_data, true));
         
         // Insert sign-in record
         $result = $wpdb->insert($signins_table, $signin_data);
         
         if ($result === false) {
             $error_msg = 'Failed to insert sign-in: ' . $wpdb->last_error;
-            error_log('CFP Workshop Sign-in: ' . $error_msg);
+            cfpew_log('Sign-in: ' . $error_msg);
             wp_die('There was an error saving your sign-in. Please try again or contact support. Error: ' . $wpdb->last_error);
         }
         
         $signin_id = $wpdb->insert_id;
-        error_log("CFP Workshop Sign-in: Successfully created sign-in record with ID: $signin_id");
+        cfpew_log("Sign-in: Successfully created sign-in record with ID: $signin_id");
         
         // Redirect to prevent form resubmission
         $redirect_url = wp_get_referer() ? wp_get_referer() : home_url();
@@ -3662,7 +3682,7 @@ function cfpew_process_signin() {
         exit;
         
     } catch (Exception $e) {
-        error_log('CFP Workshop Sign-in: Exception occurred - ' . $e->getMessage());
+        cfpew_log('Sign-in: Exception occurred - ' . $e->getMessage());
         wp_die('An unexpected error occurred during sign-in. Please try again or contact support. Error: ' . $e->getMessage());
     }
 }
